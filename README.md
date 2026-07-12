@@ -19,14 +19,32 @@ zone you assigned.
 
 ## Install
 
+Requires macOS 13+ and the Xcode Command Line Tools (`xcode-select --install`).
+
 ```bash
+git clone https://github.com/SaqibK-PH/WindowKeeper.git
+cd WindowKeeper
 make install          # builds release, copies WindowKeeper.app to /Applications
+open /Applications/WindowKeeper.app
 ```
 
-Launch WindowKeeper, then grant **Accessibility** access when prompted
-(System Settings → Privacy & Security → Accessibility). That permission is what
-lets it read and move other apps' windows. Optionally add it to
-System Settings → General → **Login Items** so it starts with your Mac.
+On first launch, grant **Accessibility** access when prompted
+(System Settings → Privacy & Security → Accessibility → enable WindowKeeper),
+then quit and relaunch the app once. That permission is what lets it read and
+move other apps' windows — without it the app runs but can't manage anything.
+
+Optionally add it to System Settings → General → **Login Items** so it starts
+with your Mac.
+
+## First-time setup
+
+1. Click the window icon in the menu bar (there is no Dock icon).
+2. **Manage Apps → [pick an app] → Managed** — opt the app in.
+3. Choose its behavior: leave **Remember Last Position** on (default — it
+   saves wherever you drag the window and restores it on next launch), or pick
+   **Snap to Zone → Left Half / Middle Third / …** to pin it to a region.
+4. Arrange everything the way you like, then
+   **Presets → Save Current as New Preset…** to snapshot the whole layout.
 
 ## Use
 
