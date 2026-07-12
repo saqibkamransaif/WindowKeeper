@@ -211,8 +211,31 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         NSApp.activate(ignoringOtherApps: true)
         if alert.runModal() == .alertFirstButtonReturn {
             let name = field.stringValue.trimmingCharacters(in: .whitespaces)
-            manager.savePreset(named: name.isEmpty ? "Untitled Preset" : name)
+            let captured = manager.savePreset(named: name.isEmpty ? "Untitled Preset" : name)
+            showCaptureSummary(captured: captured, presetName: name)
         }
+    }
+
+    /// Tell the user exactly what a preset capture contains — a preset saved
+    /// while apps are closed silently misses them, which reads as "apply does
+    /// nothing" later.
+    private func showCaptureSummary(captured: [String], presetName: String) {
+        let alert = NSAlert()
+        if captured.isEmpty {
+            alert.alertStyle = .warning
+            alert.messageText = "Nothing was captured"
+            alert.informativeText = "No managed apps have open windows right now. "
+                + "Open the apps you want in the layout, arrange them, then save the preset again."
+        } else {
+            alert.messageText = "Preset “\(presetName)” saved"
+            var text = "Captured: \(captured.joined(separator: ", "))"
+            let missing = manager.managedAppsNotRunning()
+            if !missing.isEmpty {
+                text += "\n\nNot captured (not running): \(missing.joined(separator: ", "))"
+            }
+            alert.informativeText = text
+        }
+        alert.runModal()
     }
 
     @objc private func applyPreset(_ sender: NSMenuItem) {
@@ -222,7 +245,9 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
     @objc private func updatePreset(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String else { return }
-        manager.updatePreset(id: id)
+        let captured = manager.updatePreset(id: id)
+        let name = manager.presets.first { $0.id == id }?.name ?? ""
+        showCaptureSummary(captured: captured, presetName: name)
     }
 
     @objc private func deletePreset(_ sender: NSMenuItem) {

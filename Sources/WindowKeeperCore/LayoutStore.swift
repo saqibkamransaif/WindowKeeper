@@ -36,11 +36,11 @@ public final class LayoutStore {
 
     // MARK: - Remembered frames
 
-    public func loadFrames() -> [String: [WindowFrame]] {
-        load([String: [WindowFrame]].self, from: framesURL) ?? [:]
+    public func loadFrames() -> [String: [SavedFrame]] {
+        load([String: [SavedFrame]].self, from: framesURL) ?? [:]
     }
 
-    public func save(frames: [String: [WindowFrame]]) throws {
+    public func save(frames: [String: [SavedFrame]]) throws {
         try write(frames, to: framesURL)
     }
 

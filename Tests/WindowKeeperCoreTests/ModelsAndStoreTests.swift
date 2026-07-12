@@ -100,8 +100,8 @@ final class ModelsAndStoreTests: XCTestCase {
 
     func testFramesPersistAcrossStoreInstances() throws {
         let frames = ["com.apple.Safari": [
-            WindowFrame(x: 2560, y: 25, width: 2560, height: 1415),
-            WindowFrame(x: 0, y: 25, width: 1280, height: 700),
+            SavedFrame(displayUUID: "AAAA-1111", relX: 100, relY: 0, width: 2560, height: 1415),
+            SavedFrame(displayUUID: "BBBB-2222", relX: 0, relY: 25, width: 1280, height: 700),
         ]]
         try store.save(frames: frames)
         let reloaded = try LayoutStore(directory: tempDir).loadFrames()
@@ -110,12 +110,30 @@ final class ModelsAndStoreTests: XCTestCase {
 
     func testPresetsPersistAcrossStoreInstances() throws {
         let preset = LayoutPreset(name: "Work", frames: [
-            "com.apple.Safari": [WindowFrame(x: 0, y: 25, width: 2560, height: 1415)],
-            "com.tinyspeck.slackmacgap": [WindowFrame(x: 2560, y: 25, width: 2560, height: 1415)],
+            "com.apple.Safari": [SavedFrame(displayUUID: "AAAA-1111", relX: 0, relY: 25,
+                                            width: 2560, height: 1415)],
+            "com.tinyspeck.slackmacgap": [SavedFrame(displayUUID: nil, relX: 2560, relY: 25,
+                                                     width: 2560, height: 1415)],
         ])
         try store.save(presets: [preset])
         let reloaded = try LayoutStore(directory: tempDir).loadPresets()
         XCTAssertEqual(reloaded, [preset])
+    }
+
+    /// Files written by v1.0 stored absolute AX coordinates as {x, y, width,
+    /// height}. They must decode as legacy SavedFrames, not fail or reset.
+    func testLegacyV1FramesFileDecodes() throws {
+        let legacyJSON = """
+        {"com.apple.Terminal": [{"x": -5120, "y": 30, "width": 1182, "height": 1347}]}
+        """
+        try Data(legacyJSON.utf8).write(to: store.framesURL)
+        let frames = store.loadFrames()
+        let frame = try XCTUnwrap(frames["com.apple.Terminal"]?.first)
+        XCTAssertNil(frame.displayUUID, "legacy frames have no display reference")
+        XCTAssertEqual(frame.relX, -5120)
+        XCTAssertEqual(frame.relY, 30)
+        XCTAssertEqual(frame.width, 1182)
+        XCTAssertEqual(frame.height, 1347)
     }
 
     func testMissingFilesLoadAsDefaults() {

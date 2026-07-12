@@ -26,6 +26,82 @@ public struct WindowFrame: Codable, Equatable {
     }
 }
 
+/// A display known to the system, in AX coordinates. Built from NSScreen by
+/// the app layer; a pure struct here so layout logic stays testable.
+public struct DisplayInfo: Equatable {
+    /// Hardware UUID of the display (stable across arrangement changes).
+    public var uuid: String
+    public var isMain: Bool
+    /// Top-left corner of the display's *visible* area (excludes menu bar/Dock), AX coords.
+    public var visibleTopLeftAX: CGPoint
+    public var visibleSize: CGSize
+
+    public init(uuid: String, isMain: Bool, visibleTopLeftAX: CGPoint, visibleSize: CGSize) {
+        self.uuid = uuid
+        self.isMain = isMain
+        self.visibleTopLeftAX = visibleTopLeftAX
+        self.visibleSize = visibleSize
+    }
+
+    public var visibleRect: CGRect {
+        CGRect(origin: visibleTopLeftAX, size: visibleSize)
+    }
+}
+
+/// A persisted window frame, stored relative to a specific display so it
+/// survives display arrangement changes (monitor unplugged, primary display
+/// swapped, etc.). Legacy files stored absolute AX coordinates; those decode
+/// with `displayUUID == nil` and are resolved best-effort.
+public struct SavedFrame: Codable, Equatable {
+    public var displayUUID: String?
+    /// Offset of the window's top-left from the display's visible top-left (AX).
+    /// For legacy frames (displayUUID == nil) these hold *absolute* AX coords.
+    public var relX: Double
+    public var relY: Double
+    public var width: Double
+    public var height: Double
+
+    public init(displayUUID: String?, relX: Double, relY: Double,
+                width: Double, height: Double) {
+        self.displayUUID = displayUUID
+        self.relX = relX
+        self.relY = relY
+        self.width = width
+        self.height = height
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case displayUUID, relX, relY, width, height
+        case x, y // legacy absolute format
+    }
+
+    public init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        width = try c.decode(Double.self, forKey: .width)
+        height = try c.decode(Double.self, forKey: .height)
+        if let x = try c.decodeIfPresent(Double.self, forKey: .x),
+           let y = try c.decodeIfPresent(Double.self, forKey: .y) {
+            // Legacy: absolute AX coordinates, display unknown.
+            displayUUID = nil
+            relX = x
+            relY = y
+        } else {
+            displayUUID = try c.decodeIfPresent(String.self, forKey: .displayUUID)
+            relX = try c.decode(Double.self, forKey: .relX)
+            relY = try c.decode(Double.self, forKey: .relY)
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encodeIfPresent(displayUUID, forKey: .displayUUID)
+        try c.encode(relX, forKey: .relX)
+        try c.encode(relY, forKey: .relY)
+        try c.encode(width, forKey: .width)
+        try c.encode(height, forKey: .height)
+    }
+}
+
 /// How a managed app's windows are placed.
 public enum PlacementMode: Codable, Equatable {
     /// Re-apply the last frames the user arranged.
@@ -103,10 +179,10 @@ public struct Zone: Codable, Equatable, Identifiable {
 public struct LayoutPreset: Codable, Equatable, Identifiable {
     public var id: String
     public var name: String
-    public var frames: [String: [WindowFrame]]
+    public var frames: [String: [SavedFrame]]
 
     public init(id: String = UUID().uuidString, name: String,
-                frames: [String: [WindowFrame]]) {
+                frames: [String: [SavedFrame]]) {
         self.id = id
         self.name = name
         self.frames = frames

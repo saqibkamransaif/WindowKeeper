@@ -1,5 +1,36 @@
 # Changelog
 
+## [1.1.0] — 2026-07-12
+
+### Fixed
+- **Preset apply / restore broke after display arrangement changes** (the
+  "apply did nothing" bug). Frames were stored as absolute screen coordinates;
+  when a monitor was unplugged or the primary display changed, saved
+  coordinates pointed at space that no longer existed and macOS silently
+  clamped or ignored placements. Frames are now stored **relative to a
+  specific display (hardware UUID)** and resolve against the current
+  arrangement: exact position if the display is present, main-display
+  fallback if not, always clamped fully on-screen. Legacy v1.0 files migrate
+  automatically.
+- **Placement is now verified.** AX set calls report success even when macOS
+  clamps the window; WindowKeeper now reads the frame back, retries, and logs
+  honestly (`placed / adjusted / failed / skipped` per app).
+- **Applying a preset now overrides zone rules** — an explicit Apply places
+  the captured frames; zone rules re-apply on the next launch.
+
+### Added
+- **Display-change reactivity**: when the arrangement changes (monitor
+  plugged/unplugged/asleep), managed apps are automatically put back in place
+  after things settle.
+- **Capture feedback**: saving/updating a preset shows exactly which apps were
+  captured and which managed apps were missed because they weren't running —
+  previously a silent thin preset looked like a broken Apply.
+- **Scriptable commands**: `WindowKeeper --do "capture"`,
+  `--do "apply-preset:<name>"`, `--do "save-preset:<name>"` talk to the
+  running app (also used by the automated E2E suite).
+- 11 new unit tests (40 total): display-relative resolution, arrangement-change
+  regression, legacy migration, clamping.
+
 ## [1.0.0] — 2026-07-12
 
 ### Added

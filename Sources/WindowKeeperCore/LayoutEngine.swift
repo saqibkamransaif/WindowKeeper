@@ -41,6 +41,74 @@ public enum LayoutEngine {
                            width: halfPoint(w), height: halfPoint(h))
     }
 
+    // MARK: - Saved frame ↔ absolute frame
+
+    /// Convert a live window frame into a display-relative SavedFrame. The
+    /// owning display is the one containing the window's center (falling back
+    /// to the main display), so the frame survives arrangement changes.
+    public static func makeSaved(from frame: WindowFrame,
+                                 displays: [DisplayInfo]) -> SavedFrame {
+        let center = CGPoint(x: frame.x + frame.width / 2,
+                             y: frame.y + frame.height / 2)
+        let owner = displays.first { $0.visibleRect.contains(center) }
+            ?? displays.first { $0.isMain }
+            ?? displays.first
+        guard let owner else {
+            return SavedFrame(displayUUID: nil, relX: frame.x, relY: frame.y,
+                              width: frame.width, height: frame.height)
+        }
+        return SavedFrame(displayUUID: owner.uuid,
+                          relX: frame.x - owner.visibleTopLeftAX.x,
+                          relY: frame.y - owner.visibleTopLeftAX.y,
+                          width: frame.width, height: frame.height)
+    }
+
+    /// Resolve a SavedFrame against the current displays into an absolute AX
+    /// frame that is guaranteed to be visible:
+    /// - display-relative + display present → exact position on that display
+    /// - display-relative + display missing → same offset on the main display
+    /// - legacy absolute → used as-is if still on some display, else clamped
+    ///   into the main display
+    /// The result is always clamped inside its target display's visible area.
+    public static func resolve(saved: SavedFrame,
+                               displays: [DisplayInfo]) -> WindowFrame? {
+        guard !displays.isEmpty else { return nil }
+        let main = displays.first { $0.isMain } ?? displays[0]
+
+        if let uuid = saved.displayUUID {
+            let target = displays.first { $0.uuid == uuid } ?? main
+            let frame = WindowFrame(x: target.visibleTopLeftAX.x + saved.relX,
+                                    y: target.visibleTopLeftAX.y + saved.relY,
+                                    width: saved.width, height: saved.height)
+            return clamp(frame, into: target)
+        }
+
+        // Legacy absolute frame: keep it if its center is still on a display.
+        let absolute = WindowFrame(x: saved.relX, y: saved.relY,
+                                   width: saved.width, height: saved.height)
+        let center = CGPoint(x: absolute.x + absolute.width / 2,
+                             y: absolute.y + absolute.height / 2)
+        if let owner = displays.first(where: { $0.visibleRect.contains(center) }) {
+            return clamp(absolute, into: owner)
+        }
+        return clamp(absolute, into: main)
+    }
+
+    /// Fit a frame inside a display's visible area: shrink if oversized, then
+    /// shift so it lies fully inside. Prevents macOS from silently relocating
+    /// windows it considers off-screen.
+    public static func clamp(_ frame: WindowFrame,
+                             into display: DisplayInfo) -> WindowFrame {
+        let visible = display.visibleRect
+        let width = min(frame.width, Double(visible.width))
+        let height = min(frame.height, Double(visible.height))
+        var x = frame.x
+        var y = frame.y
+        x = max(Double(visible.minX), min(x, Double(visible.maxX) - width))
+        y = max(Double(visible.minY), min(y, Double(visible.maxY) - height))
+        return WindowFrame(x: x, y: y, width: width, height: height)
+    }
+
     /// Round to the nearest half point so frames land on pixel boundaries on
     /// both standard and Retina (2x) displays.
     private static func halfPoint(_ v: Double) -> Double {

@@ -4,9 +4,11 @@ import WindowKeeperCore
 /// Orchestrates everything: watches app launches, applies rules, and saves
 /// user-arranged frames for "remember" apps.
 final class WindowManager {
+    static let commandNotification = "com.saqibkamran.windowkeeper.command"
+
     let store: LayoutStore
     private(set) var config: Config
-    private(set) var rememberedFrames: [String: [WindowFrame]]
+    private(set) var rememberedFrames: [String: [SavedFrame]]
     private(set) var presets: [LayoutPreset]
 
     private var observers: [pid_t: AXObserver] = [:]
@@ -14,6 +16,7 @@ final class WindowManager {
     /// time until which events are ignored.
     private var suppressedUntil: [String: Date] = [:]
     private var saveDebounce: [String: DispatchWorkItem] = [:]
+    private var screenChangeDebounce: DispatchWorkItem?
 
     init(store: LayoutStore) {
         self.store = store
@@ -30,6 +33,12 @@ final class WindowManager {
                            name: NSWorkspace.didLaunchApplicationNotification, object: nil)
         center.addObserver(self, selector: #selector(appDidTerminate(_:)),
                            name: NSWorkspace.didTerminateApplicationNotification, object: nil)
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(screenParametersChanged),
+            name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        DistributedNotificationCenter.default().addObserver(
+            self, selector: #selector(handleCommand(_:)),
+            name: Notification.Name(Self.commandNotification), object: nil)
         for app in NSWorkspace.shared.runningApplications where managedRule(for: app) != nil {
             attach(to: app, applyPlacement: false)
         }
@@ -48,6 +57,44 @@ final class WindowManager {
         guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
         if let observer = observers.removeValue(forKey: app.processIdentifier) {
             AccessibilityService.removeObserver(observer)
+        }
+    }
+
+    /// Display arrangement changed (monitor plugged/unplugged, resolution
+    /// switch). macOS scrambles windows in this moment; once things settle,
+    /// put every managed app back where it belongs on the new arrangement.
+    @objc private func screenParametersChanged() {
+        guard config.enabled else { return }
+        screenChangeDebounce?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            Log.shared.info("Display arrangement changed — re-applying layouts")
+            for app in NSWorkspace.shared.runningApplications
+            where self.managedRule(for: app) != nil {
+                self.applyRule(to: app, attempt: 0)
+            }
+        }
+        screenChangeDebounce = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: work)
+    }
+
+    /// Scriptable command channel (also used by `WindowKeeper --do "…"`).
+    /// Commands: capture | apply-preset:<name> | save-preset:<name>
+    @objc private func handleCommand(_ note: Notification) {
+        guard let command = note.object as? String else { return }
+        Log.shared.info("Command received: \(command)")
+        if command == "capture" {
+            captureAllFrames()
+        } else if command.hasPrefix("apply-preset:") {
+            let name = String(command.dropFirst("apply-preset:".count))
+            if let preset = presets.first(where: { $0.name == name }) {
+                applyPreset(id: preset.id)
+            } else {
+                Log.shared.error("No preset named '\(name)'")
+            }
+        } else if command.hasPrefix("save-preset:") {
+            let name = String(command.dropFirst("save-preset:".count))
+            savePreset(named: name)
         }
     }
 
@@ -117,22 +164,39 @@ final class WindowManager {
             }
             return
         }
+        let displays = DisplayInfo.current()
+        let remembered = rememberedFrames[rule.bundleID]?
+            .compactMap { LayoutEngine.resolve(saved: $0, displays: displays) }
         let targets = LayoutEngine.targetFrames(
             rule: rule,
             windowCount: windows.count,
-            remembered: rememberedFrames[rule.bundleID],
+            remembered: remembered,
             zoneResolver: { [weak self] id in self?.resolveZone(id: id) }
         )
-        suppress(bundleID: rule.bundleID)
-        var applied = 0
+        place(windows: windows, targets: targets, bundleID: rule.bundleID)
+    }
+
+    /// Set frames on windows with verification, suppression, and honest logging.
+    private func place(windows: [AXUIElement], targets: [WindowFrame?], bundleID: String) {
+        suppress(bundleID: bundleID)
+        var placed = 0, adjusted = 0, failed = 0, skipped = 0
         for (window, target) in zip(windows, targets) {
-            guard let target else { continue }
+            guard let target else { skipped += 1; continue }
             if let current = AccessibilityService.frame(of: window),
-               LayoutEngine.framesMatch(current, target) { continue }
-            if AccessibilityService.setFrame(target, on: window) { applied += 1 }
+               LayoutEngine.framesMatch(current, target) { skipped += 1; continue }
+            switch AccessibilityService.setFrame(target, on: window) {
+            case .placed: placed += 1
+            case .adjusted(let final):
+                adjusted += 1
+                Log.shared.error("macOS adjusted a \(bundleID) window: wanted "
+                    + "(\(target.x),\(target.y) \(target.width)x\(target.height)) got "
+                    + "(\(final.x),\(final.y) \(final.width)x\(final.height))")
+            case .failed: failed += 1
+            }
         }
-        if applied > 0 {
-            Log.shared.info("Placed \(applied) window(s) of \(rule.bundleID)")
+        if placed + adjusted + failed > 0 {
+            Log.shared.info("\(bundleID): placed \(placed), adjusted \(adjusted), "
+                + "failed \(failed), already-in-place/skipped \(skipped)")
         }
     }
 
@@ -165,8 +229,10 @@ final class WindowManager {
     }
 
     private func captureFrames(of app: NSRunningApplication, bundleID: String) {
+        let displays = DisplayInfo.current()
         let frames = AccessibilityService.windows(pid: app.processIdentifier)
             .compactMap { AccessibilityService.frame(of: $0) }
+            .map { LayoutEngine.makeSaved(from: $0, displays: displays) }
         guard !frames.isEmpty else { return }
         rememberedFrames[bundleID] = frames
         try? store.save(frames: rememberedFrames)
@@ -211,13 +277,16 @@ final class WindowManager {
     }
 
     /// Snapshot current frames of every managed running app into memory + disk.
+    /// Returns the snapshot so callers can report what was captured.
     @discardableResult
-    func captureAllFrames() -> [String: [WindowFrame]] {
-        var snapshot: [String: [WindowFrame]] = [:]
+    func captureAllFrames() -> [String: [SavedFrame]] {
+        let displays = DisplayInfo.current()
+        var snapshot: [String: [SavedFrame]] = [:]
         for app in NSWorkspace.shared.runningApplications {
             guard let rule = managedRule(for: app) else { continue }
             let frames = AccessibilityService.windows(pid: app.processIdentifier)
                 .compactMap { AccessibilityService.frame(of: $0) }
+                .map { LayoutEngine.makeSaved(from: $0, displays: displays) }
             guard !frames.isEmpty else { continue }
             snapshot[rule.bundleID] = frames
         }
@@ -225,24 +294,40 @@ final class WindowManager {
             rememberedFrames[bundleID] = frames
         }
         try? store.save(frames: rememberedFrames)
-        Log.shared.info("Captured layout of \(snapshot.count) app(s)")
+        Log.shared.info("Captured layout of \(snapshot.count) app(s): "
+            + snapshot.keys.sorted().joined(separator: ", "))
         return snapshot
+    }
+
+    /// Managed apps that are NOT running right now (so capture can't see them).
+    func managedAppsNotRunning() -> [String] {
+        let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
+        return config.rules.filter { $0.enabled && !running.contains($0.bundleID) }
+            .map(\.displayName)
     }
 
     // MARK: - Presets
 
-    func savePreset(named name: String) {
-        let preset = LayoutPreset(name: name, frames: captureAllFrames())
+    /// Save the current layout as a preset. Returns the captured app names so
+    /// the UI can tell the user exactly what's inside the preset.
+    @discardableResult
+    func savePreset(named name: String) -> [String] {
+        let frames = captureAllFrames()
+        let preset = LayoutPreset(name: name, frames: frames)
         presets.append(preset)
         try? store.save(presets: presets)
-        Log.shared.info("Preset saved: \(name)")
+        Log.shared.info("Preset saved: \(name) (\(frames.count) app(s))")
+        return displayNames(for: Array(frames.keys))
     }
 
-    func updatePreset(id: String) {
-        guard let i = presets.firstIndex(where: { $0.id == id }) else { return }
-        presets[i].frames = captureAllFrames()
+    @discardableResult
+    func updatePreset(id: String) -> [String] {
+        guard let i = presets.firstIndex(where: { $0.id == id }) else { return [] }
+        let frames = captureAllFrames()
+        presets[i].frames = frames
         try? store.save(presets: presets)
-        Log.shared.info("Preset updated: \(presets[i].name)")
+        Log.shared.info("Preset updated: \(presets[i].name) (\(frames.count) app(s))")
+        return displayNames(for: Array(frames.keys))
     }
 
     func deletePreset(id: String) {
@@ -250,19 +335,49 @@ final class WindowManager {
         try? store.save(presets: presets)
     }
 
+    /// Apply a preset's frames directly to every running app captured in it —
+    /// deliberately bypassing zone rules: an explicit "Apply" wins over
+    /// standing placement modes. Frames also become the remembered frames so
+    /// apps launched later follow the preset too.
     func applyPreset(id: String) {
         guard let preset = presets.first(where: { $0.id == id }) else { return }
-        // Preset frames become the remembered frames so future launches follow it.
         for (bundleID, frames) in preset.frames {
             rememberedFrames[bundleID] = frames
         }
         try? store.save(frames: rememberedFrames)
-        for app in NSWorkspace.shared.runningApplications {
-            guard let bundleID = app.bundleIdentifier,
-                  preset.frames[bundleID] != nil,
-                  managedRule(for: app) != nil else { continue }
-            applyRule(to: app, attempt: 0)
+
+        let displays = DisplayInfo.current()
+        var appliedApps = 0
+        var notRunning: [String] = []
+        for (bundleID, savedFrames) in preset.frames {
+            let running = NSWorkspace.shared.runningApplications
+                .filter { $0.bundleIdentifier == bundleID }
+            guard let app = running.first else {
+                notRunning.append(bundleID)
+                continue
+            }
+            let windows = AccessibilityService.windows(pid: app.processIdentifier)
+            guard !windows.isEmpty else { notRunning.append(bundleID); continue }
+            let resolved = savedFrames.compactMap {
+                LayoutEngine.resolve(saved: $0, displays: displays)
+            }
+            guard !resolved.isEmpty else { continue }
+            let targets: [WindowFrame?] = (0..<windows.count).map { i in
+                i < resolved.count ? resolved[i] : resolved.last
+            }
+            place(windows: windows, targets: targets, bundleID: bundleID)
+            appliedApps += 1
         }
-        Log.shared.info("Preset applied: \(preset.name)")
+        var summary = "Preset applied: \(preset.name) — \(appliedApps) app(s)"
+        if !notRunning.isEmpty {
+            summary += "; not running: \(notRunning.joined(separator: ", "))"
+        }
+        Log.shared.info(summary)
+    }
+
+    private func displayNames(for bundleIDs: [String]) -> [String] {
+        bundleIDs.sorted().map { id in
+            config.rules.first { $0.bundleID == id }?.displayName ?? id
+        }
     }
 }
