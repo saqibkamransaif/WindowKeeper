@@ -28,3 +28,9 @@
   `make install` → `/Applications` (needs no approval, local machine only).
 - Bundle ID: `com.saqibkamran.windowkeeper`. Ad-hoc signed; if the binary is
   rebuilt, macOS may re-prompt for Accessibility — that is expected.
+
+## GitHub account
+- This repo lives on the PERSONAL account: `saqibkamransaif/WindowKeeper` (private).
+- The Mac's default active gh account is `SaqibK-PH` (Patriot Holdings work).
+  Before `git push` or `gh` operations on this repo, run:
+  `gh auth switch -h github.com -u saqibkamransaif` — and switch back after.
