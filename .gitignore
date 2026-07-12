@@ -6,3 +6,7 @@ logs/
 .swiftpm/
 Sources/**/CLAUDE.md
 Tests/**/CLAUDE.md
+
+# Ralph context management
+.ralph/
+.ralphrc
