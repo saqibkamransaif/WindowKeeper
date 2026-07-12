@@ -1,7 +1,7 @@
 import AppKit
 import WindowKeeperCore
 
-let version = "1.0.0"
+let version = "1.1.0"
 let args = CommandLine.arguments.dropFirst()
 
 if args.contains("--version") {
@@ -34,6 +34,18 @@ if args.contains("--diagnose") {
         print("  [\(i)] frame=\(Int(f.width))x\(Int(f.height)) at (\(Int(f.origin.x)),\(Int(f.origin.y)))"
             + " visible=\(Int(v.width))x\(Int(v.height))")
     }
+    exit(0)
+}
+
+// `--do <command>`: send a command to the running WindowKeeper instance.
+// Commands: capture | apply-preset:<name> | save-preset:<name>
+if let flagIndex = CommandLine.arguments.firstIndex(of: "--do"),
+   CommandLine.arguments.count > flagIndex + 1 {
+    let command = CommandLine.arguments[flagIndex + 1]
+    DistributedNotificationCenter.default().postNotificationName(
+        Notification.Name(WindowManager.commandNotification),
+        object: command, userInfo: nil, deliverImmediately: true)
+    print("Sent: \(command)")
     exit(0)
 }
 

@@ -43,19 +43,42 @@ enum AccessibilityService {
         return WindowFrame(rect: CGRect(origin: point, size: size))
     }
 
-    /// Apply a frame. Position and size are set separately in AX; setting
-    /// size → position → size again works around apps that clamp one axis
-    /// until the other changes (a long-standing AX quirk).
+    enum PlacementResult {
+        case placed          // window ended up at the target frame
+        case adjusted(WindowFrame) // macOS clamped it; final frame attached
+        case failed
+    }
+
+    /// Apply a frame and verify what macOS actually did. AX set calls return
+    /// success even when the WindowServer clamps or relocates the window
+    /// (common on cross-display moves), so trust only the readback. Position
+    /// is set before size: moving first gets the window onto the target
+    /// display so the size isn't clamped against the source display.
     @discardableResult
-    static func setFrame(_ frame: WindowFrame, on window: AXUIElement) -> Bool {
+    static func setFrame(_ frame: WindowFrame, on window: AXUIElement,
+                         attempts: Int = 3) -> PlacementResult {
         var point = CGPoint(x: frame.x, y: frame.y)
         var size = CGSize(width: frame.width, height: frame.height)
         guard let posValue = AXValueCreate(.cgPoint, &point),
-              let sizeValue = AXValueCreate(.cgSize, &size) else { return false }
-        let r1 = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
-        let r2 = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, posValue)
-        let r3 = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
-        return r1 == .success && r2 == .success && r3 == .success
+              let sizeValue = AXValueCreate(.cgSize, &size) else { return .failed }
+
+        var lastSeen: WindowFrame?
+        for attempt in 0..<max(1, attempts) {
+            let r1 = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, posValue)
+            let r2 = AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue)
+            let r3 = AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, posValue)
+            guard r1 == .success, r2 == .success, r3 == .success else { return .failed }
+            guard let current = self.frame(of: window) else { return .failed }
+            if LayoutEngine.framesMatch(current, frame) { return .placed }
+            // If two consecutive attempts land on the same wrong frame, macOS
+            // is enforcing it — stop fighting and report the adjustment.
+            if let last = lastSeen, LayoutEngine.framesMatch(current, last) {
+                return .adjusted(current)
+            }
+            lastSeen = current
+            if attempt < attempts - 1 { usleep(120_000) }
+        }
+        return .adjusted(lastSeen ?? frame)
     }
 
     /// Create an observer on an app for window lifecycle/geometry events.
