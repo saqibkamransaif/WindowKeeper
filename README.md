@@ -22,7 +22,7 @@ zone you assigned.
 Requires macOS 13+ and the Xcode Command Line Tools (`xcode-select --install`).
 
 ```bash
-git clone https://github.com/SaqibK-PH/WindowKeeper.git
+git clone https://github.com/saqibkamransaif/WindowKeeper.git
 cd WindowKeeper
 make install          # builds release, copies WindowKeeper.app to /Applications
 open /Applications/WindowKeeper.app
