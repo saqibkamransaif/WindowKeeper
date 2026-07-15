@@ -16,8 +16,12 @@ enum AccessibilityService {
     static func windows(pid: pid_t) -> [AXUIElement] {
         let app = AXUIElementCreateApplication(pid)
         var value: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value) == .success,
-              let list = value as? [AXUIElement] else { return [] }
+        let result = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &value)
+        guard result == .success, let list = value as? [AXUIElement] else {
+            Log.shared.error("AX windows query failed for pid \(pid): "
+                + "error \(result.rawValue), value \(value == nil ? "nil" : "non-nil")")
+            return []
+        }
         return list.filter { element in
             var role: CFTypeRef?
             AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &role)

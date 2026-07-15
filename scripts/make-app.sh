@@ -27,7 +27,7 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.3.0</string>
+    <string>1.3.1</string>
     <key>CFBundleVersion</key>
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
@@ -40,5 +40,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
 </plist>
 PLIST
 
-codesign --force --deep --sign - "$APP"
-echo "Built $APP"
+# Prefer a stable signing identity: ad-hoc signatures change on every build,
+# and macOS silently revokes the Accessibility grant when the app's code
+# signature no longer matches — forcing a manual re-grant after each install.
+IDENTITY=$(security find-identity -v -p codesigning 2>/dev/null \
+    | awk -F '"' '/Apple Development|Developer ID Application/ {print $2; exit}')
+codesign --force --deep --sign "${IDENTITY:--}" "$APP"
+echo "Built $APP (signed: ${IDENTITY:-ad-hoc})"
