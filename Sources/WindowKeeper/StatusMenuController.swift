@@ -201,7 +201,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     @objc private func saveNewPreset() {
         let alert = NSAlert()
         alert.messageText = "Save Layout Preset"
-        alert.informativeText = "Captures the current window layout of all managed apps."
+        alert.informativeText = "Captures the current window layout of every open app, across all displays."
         alert.addButton(withTitle: "Save")
         alert.addButton(withTitle: "Cancel")
         let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 240, height: 24))
@@ -224,7 +224,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         if captured.isEmpty {
             alert.alertStyle = .warning
             alert.messageText = "Nothing was captured"
-            alert.informativeText = "No managed apps have open windows right now. "
+            alert.informativeText = "No apps have open windows right now. "
                 + "Open the apps you want in the layout, arrange them, then save the preset again."
         } else {
             alert.messageText = "Preset “\(presetName)” saved"
