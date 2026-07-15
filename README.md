@@ -1,9 +1,9 @@
 # WindowKeeper
 
 A macOS menu-bar app that remembers where your app windows belong — built for
-ultra-wide monitors. Pick which apps it manages; every time one of them opens,
-its windows go back to the exact size and place you left them, or snap to a
-zone you assigned.
+ultra-wide and multi-monitor setups. Save your whole desk as a preset, then
+restore it with one click: closed apps relaunch and every window returns to
+the exact size and place you left it, on every screen.
 
 ## Features
 
@@ -15,6 +15,8 @@ zone you assigned.
 - **Layout presets** — capture every open app's exact window arrangement across
   all displays as a named preset. Applying it is a one-click restore: apps that
   aren't running are launched, and every window goes back to its saved place.
+- **Magic button** — the preset you choose sits at the top of the menu as a
+  bold "Restore …" item. Click the menu-bar icon, click the button, done.
 - **Opt-in per app** — day-to-day, only apps you mark as *Managed* are touched
   (apps captured into a preset become managed automatically).
 - **Multi-display aware** — zones can target any connected display.
@@ -40,13 +42,18 @@ with your Mac.
 
 ## First-time setup
 
-1. Click the window icon in the menu bar (there is no Dock icon).
-2. **Manage Apps → [pick an app] → Managed** — opt the app in.
-3. Choose its behavior: leave **Remember Last Position** on (default — it
-   saves wherever you drag the window and restores it on next launch), or pick
+1. Open the apps you work with and arrange every window the way you like,
+   on all your screens.
+2. Click the window icon in the menu bar (there is no Dock icon) and choose
+   **Presets → Save Current as New Preset…** — this snapshots every open app
+   and auto-adds each one to the managed list.
+3. That's it. The preset appears as the bold **✨ Restore …** button at the top
+   of the menu; one click relaunches anything you've closed and puts every
+   window back in its place. (With several presets, pick which one owns the
+   button via **Presets → *name* → Use as Magic Button**.)
+4. Optionally fine-tune per app under **Manage Apps**: keep
+   **Remember Last Position** (default) or pick
    **Snap to Zone → Left Half / Middle Third / …** to pin it to a region.
-4. Arrange everything the way you like, then
-   **Presets → Save Current as New Preset…** to snapshot the whole layout.
 
 ## Use
 
@@ -59,6 +66,7 @@ Everything lives in the menu-bar icon:
 | Capture Current Layout | Saves the frames of every open app right now |
 | Presets → Save Current as New Preset… | Snapshot every open app's layout under a name |
 | Presets → *name* → Apply / Update / Delete | Apply launches missing apps and restores every window |
+| Presets → *name* → Use as Magic Button | Make this preset the one-click restore at the top |
 | Manage Apps → *app* → Managed | Opt an app in or out |
 | Manage Apps → *app* → Remember Last Position | Restore where you last put it (default) |
 | Manage Apps → *app* → Snap to Zone → *zone* | Pin the app to a screen region |
@@ -66,6 +74,19 @@ Everything lives in the menu-bar icon:
 Config lives in `~/Library/Application Support/WindowKeeper/` as three JSON
 files (`config.json`, `frames.json`, `presets.json`); logs in `logs/` next to
 them.
+
+## Limitations
+
+- **Full-screen windows and windows on other Spaces can't be captured.** The
+  Accessibility API only exposes windows on the currently visible Spaces —
+  bring windows to a normal desktop before saving a preset.
+- **Rebuilding the app resets its Accessibility grant.** The bundle is ad-hoc
+  signed, so after `make install` macOS treats it as a new binary: remove
+  WindowKeeper from System Settings → Privacy & Security → Accessibility and
+  re-add it, then relaunch.
+- **Window contents aren't restored** — WindowKeeper restores which apps are
+  open and where their windows sit; tabs/documents are each app's own
+  session-restore behavior.
 
 ## Development
 
