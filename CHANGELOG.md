@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.3.1] — 2026-07-15
+
+### Fixed
+- **"Update from Current Layout" no longer silently drops apps it can't see.**
+  Capturing goes through the Accessibility API, which cannot see windows on
+  another macOS Space (or minimized/hidden ones). Updating a preset while an
+  app's only window sat on a different Space removed that app from the preset
+  entirely — so a later "Restore" left its window untouched, which read as
+  "restore doesn't put everything back". Now an app that is still running but
+  has no capturable windows keeps its existing preset entry (apps that were
+  quit are still removed on update, as before). The log reports which entries
+  were kept.
+- **Accessibility grant no longer breaks on every rebuild.** The app was
+  ad-hoc signed, so each build produced a new code signature and macOS
+  silently revoked the Accessibility permission (all AX calls then fail with
+  `kAXErrorAPIDisabled`, which looks like "restore does nothing").
+  `make-app.sh` now signs with the first available Apple Development /
+  Developer ID identity, whose stable code requirement keeps the TCC grant
+  valid across builds; it falls back to ad-hoc when no identity exists. One
+  manual re-grant is needed after installing this version.
+- Failed AX window queries are now logged with the AX error code instead of
+  silently returning an empty window list.
+
 ## [1.3.0] — 2026-07-15
 
 ### Added

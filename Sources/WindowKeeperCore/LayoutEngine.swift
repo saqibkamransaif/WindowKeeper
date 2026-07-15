@@ -126,6 +126,27 @@ public enum LayoutEngine {
             && abs(a.height - b.height) <= tolerance
     }
 
+    /// Merge a fresh capture into a preset's existing frames. Captured apps
+    /// overwrite their entries; apps in `running` that the capture missed
+    /// (window in another Space, minimized, or hidden) keep their existing
+    /// frames instead of being silently dropped; apps neither captured nor
+    /// running are removed. `kept` lists the preserved bundle IDs so callers
+    /// can report them.
+    public static func mergePresetFrames(
+        existing: [String: [SavedFrame]],
+        captured: [String: [SavedFrame]],
+        running: Set<String>
+    ) -> (frames: [String: [SavedFrame]], kept: [String]) {
+        var merged = captured
+        var kept: [String] = []
+        for (bundleID, frames) in existing
+        where captured[bundleID] == nil && running.contains(bundleID) {
+            merged[bundleID] = frames
+            kept.append(bundleID)
+        }
+        return (merged, kept.sorted())
+    }
+
     /// Target frames for an app's windows given its rule.
     /// - remember: saved frames, applied by window order (nil when none saved).
     /// - zone: the zone frame repeated for every window.
