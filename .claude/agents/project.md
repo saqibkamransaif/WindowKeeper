@@ -30,7 +30,7 @@
   rebuilt, macOS may re-prompt for Accessibility — that is expected.
 
 ## GitHub account
-- This repo lives on the PERSONAL account: `saqibkamransaif/WindowKeeper` (private).
-- The Mac's default active gh account is `SaqibK-PH` (Patriot Holdings work).
-  Before `git push` or `gh` operations on this repo, run:
-  `gh auth switch -h github.com -u saqibkamransaif` — and switch back after.
+- This repo lives on the personal account: `saqibkamransaif/WindowKeeper`.
+- If `gh` has multiple accounts authenticated, switch to `saqibkamransaif`
+  before `git push` or `gh` operations on this repo
+  (`gh auth switch -h github.com -u saqibkamransaif`), and switch back after.

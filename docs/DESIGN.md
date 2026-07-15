@@ -8,9 +8,11 @@ position you left them. The user wants:
    them automatically every time the app opens.
 2. **Zones** — assign an app to a fixed screen region ("a special window for them");
    whenever that app opens, its windows snap to that region automatically.
-3. **Presets** — capture the whole current layout as a named preset, update it later,
-   and re-apply it on demand.
-4. **App selection** — only apps the user opts in to are managed.
+3. **Presets** — capture the whole current layout (every open app, all displays)
+   as a named preset, update it later, and restore it with one click: closed
+   apps are relaunched and every window is placed back.
+4. **App selection** — day-to-day management is opt-in per app; apps captured
+   into a preset are opted in automatically.
 
 ## Architecture
 
@@ -23,7 +25,7 @@ WindowKeeperCore  (library — pure logic, no AppKit/AX dependency beyond CoreGr
 └── LayoutStore.swift   JSON persistence (atomic writes, injectable directory)
 
 WindowKeeper      (executable — AppKit menu-bar app)
-├── main.swift                 arg parsing (--diagnose, --version) or GUI launch
+├── main.swift                 arg parsing (--diagnose, --version, --frames, --do) or GUI launch
 ├── AppDelegate.swift          NSStatusItem lifecycle
 ├── AccessibilityService.swift AXUIElement wrappers (windows, get/set frame, observers)
 ├── WindowManager.swift        orchestration: launch events → apply rules; moves → save
@@ -45,7 +47,14 @@ WindowKeeper      (executable — AppKit menu-bar app)
   notifications for that app are suppressed for a short window so we don't re-save
   frames we just applied.
 - **Restore-on-launch retries**: apps create windows asynchronously after launch, so
-  placement retries up to ~5 s until windows appear.
+  placement retries up to ~15 s until windows appear (preset-launched apps can be
+  slow to show their first window).
+- **Display-relative frames**: saved frames are stored relative to a display's
+  hardware UUID (`SavedFrame`), so layouts survive monitor unplug/replug and
+  primary-display changes; missing displays resolve to the main display, clamped
+  on-screen. Legacy absolute-coordinate files migrate on decode.
+- **Spaces limitation**: the AX API only exposes windows on currently visible
+  Spaces; full-screen windows and windows on other Spaces cannot be captured.
 - **Persistence**: three JSON files in `~/Library/Application Support/WindowKeeper/`:
   `config.json` (rules + zones + enabled flag), `frames.json` (last-known frames per
   bundle ID), `presets.json` (named layout snapshots). Atomic writes.
@@ -59,9 +68,17 @@ WindowKeeper      (executable — AppKit menu-bar app)
 
 ## Presets
 
-A preset is `{name, frames: [bundleID: [WindowFrame]]}` captured from currently running
-managed apps. *Apply* sets frames of running apps and overwrites remembered frames (so
-future launches also follow the preset). *Update* re-captures into an existing preset.
+A preset is `{id, name, frames: [bundleID: [SavedFrame]]}` captured from every
+regular running app with standard windows (not just managed apps); newly seen
+apps get a Remember-mode rule so they stay managed. *Apply* overwrites
+remembered frames, places windows of running apps, and **launches** preset apps
+that aren't running — the normal launch pipeline then places their windows.
+Running apps not in the preset are untouched. *Update* re-captures into an
+existing preset.
+
+The **magic button** is a prominent one-click "Restore *preset*" item at the
+top of the status menu. It applies the preset selected via `config.magicPresetID`
+("Use as Magic Button" per preset), falling back to the most recently saved.
 
 ## Testing
 
