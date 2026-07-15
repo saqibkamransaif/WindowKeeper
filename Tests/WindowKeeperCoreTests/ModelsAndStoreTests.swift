@@ -44,6 +44,19 @@ final class ModelsAndStoreTests: XCTestCase {
         XCTAssertEqual(decoded, config)
     }
 
+    func testMagicPresetIDRoundTripsAndDefaultsToNil() throws {
+        var config = Config()
+        config.magicPresetID = "preset-123"
+        let decoded = try JSONDecoder().decode(
+            Config.self, from: JSONEncoder().encode(config))
+        XCTAssertEqual(decoded.magicPresetID, "preset-123")
+
+        // Pre-1.3 config files have no magicPresetID key.
+        let legacy = try JSONDecoder().decode(
+            Config.self, from: Data(#"{"enabled": true, "rules": []}"#.utf8))
+        XCTAssertNil(legacy.magicPresetID)
+    }
+
     // MARK: - Config rule management
 
     func testUpsertReplacesExistingRule() {

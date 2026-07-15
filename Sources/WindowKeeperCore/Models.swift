@@ -194,15 +194,18 @@ public struct Config: Codable, Equatable {
     public var enabled: Bool
     public var rules: [AppRule]
     public var zones: [Zone]
+    /// Preset applied by the one-click "magic button" at the top of the menu.
+    public var magicPresetID: String?
 
     public init(enabled: Bool = true, rules: [AppRule] = [],
-                zones: [Zone] = Zone.builtIn) {
+                zones: [Zone] = Zone.builtIn, magicPresetID: String? = nil) {
         self.enabled = enabled
         self.rules = rules
         self.zones = zones
+        self.magicPresetID = magicPresetID
     }
 
-    private enum CodingKeys: String, CodingKey { case enabled, rules, zones }
+    private enum CodingKeys: String, CodingKey { case enabled, rules, zones, magicPresetID }
 
     /// Tolerant decoding: a hand-edited config missing a key (or with an empty
     /// zones list) falls back to defaults instead of resetting everything.
@@ -212,6 +215,7 @@ public struct Config: Codable, Equatable {
         rules = try c.decodeIfPresent([AppRule].self, forKey: .rules) ?? []
         let decodedZones = try c.decodeIfPresent([Zone].self, forKey: .zones) ?? []
         zones = decodedZones.isEmpty ? Zone.builtIn : decodedZones
+        magicPresetID = try c.decodeIfPresent(String.self, forKey: .magicPresetID)
     }
 
     public func rule(for bundleID: String) -> AppRule? {

@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.3.0] — 2026-07-15
+
+### Added
+- **Magic button.** A bold, accent-tinted "Restore *preset*" item now sits at
+  the very top of the menu-bar menu — one click launches every app in the
+  preset and puts every window back in its saved place on all displays. The
+  target preset is the explicitly chosen one (Presets → *name* → "Use as
+  Magic Button", persisted as `magicPresetID` in config.json), falling back
+  to the most recently saved preset.
+
+### Notes
+- Windows that live on another macOS Space (or are full-screen) are invisible
+  to the Accessibility API and can't be captured — bring them to a visible
+  desktop before saving a preset.
+
 ## [1.2.0] — 2026-07-15
 
 ### Changed
