@@ -54,6 +54,7 @@ Everything lives in the menu-bar icon:
 
 | Menu item | What it does |
 |-----------|--------------|
+| ✨ Restore *preset* (top of menu) | One-click full restore of the magic preset |
 | Enabled | Master on/off switch |
 | Capture Current Layout | Saves the frames of every open app right now |
 | Presets → Save Current as New Preset… | Snapshot every open app's layout under a name |

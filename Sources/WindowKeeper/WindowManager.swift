@@ -326,6 +326,20 @@ final class WindowManager {
 
     // MARK: - Presets
 
+    /// The preset behind the one-click magic button: the explicitly chosen
+    /// one, else the most recently saved.
+    var magicPreset: LayoutPreset? {
+        if let id = config.magicPresetID,
+           let preset = presets.first(where: { $0.id == id }) { return preset }
+        return presets.last
+    }
+
+    func setMagicPreset(id: String) {
+        config.magicPresetID = id
+        try? store.save(config: config)
+        Log.shared.info("Magic button now applies preset id \(id)")
+    }
+
     /// Save the current layout as a preset. Returns the captured app names so
     /// the UI can tell the user exactly what's inside the preset.
     @discardableResult

@@ -36,6 +36,11 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
             menu.addItem(.separator())
         }
 
+        if trusted, let preset = manager.magicPreset {
+            menu.addItem(makeMagicButton(for: preset))
+            menu.addItem(.separator())
+        }
+
         let enabled = NSMenuItem(title: "Enabled",
                                  action: #selector(toggleEnabled), keyEquivalent: "")
         enabled.target = self
@@ -61,6 +66,25 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         let quit = NSMenuItem(title: "Quit WindowKeeper",
                               action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
         menu.addItem(quit)
+    }
+
+    /// The one-click restore button: big, bold, accent-tinted, always at the
+    /// very top of the menu.
+    private func makeMagicButton(for preset: LayoutPreset) -> NSMenuItem {
+        let item = NSMenuItem(title: "Restore \(preset.name)",
+                              action: #selector(applyMagicPreset), keyEquivalent: "r")
+        item.target = self
+        item.attributedTitle = NSAttributedString(
+            string: "Restore \(preset.name)",
+            attributes: [.font: NSFont.systemFont(ofSize: 14.5, weight: .semibold)])
+        let symbol = NSImage(systemSymbolName: "wand.and.stars",
+                             accessibilityDescription: "Restore layout")
+        let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .semibold)
+            .applying(.init(paletteColors: [.controlAccentColor]))
+        item.image = symbol?.withSymbolConfiguration(config)
+        item.toolTip = "Launch every app in “\(preset.name)” and put every window "
+            + "back in its saved place, on all displays."
+        return item
     }
 
     // MARK: - Presets submenu
@@ -90,6 +114,13 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
                 update.target = self
                 update.representedObject = preset.id
                 actions.addItem(update)
+
+                let magic = NSMenuItem(title: "Use as Magic Button",
+                                       action: #selector(setMagicPreset(_:)), keyEquivalent: "")
+                magic.target = self
+                magic.representedObject = preset.id
+                magic.state = manager.magicPreset?.id == preset.id ? .on : .off
+                actions.addItem(magic)
 
                 actions.addItem(.separator())
                 let delete = NSMenuItem(title: "Delete", action: #selector(deletePreset(_:)), keyEquivalent: "")
@@ -241,6 +272,16 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     @objc private func applyPreset(_ sender: NSMenuItem) {
         guard let id = sender.representedObject as? String else { return }
         manager.applyPreset(id: id)
+    }
+
+    @objc private func applyMagicPreset() {
+        guard let preset = manager.magicPreset else { return }
+        manager.applyPreset(id: preset.id)
+    }
+
+    @objc private func setMagicPreset(_ sender: NSMenuItem) {
+        guard let id = sender.representedObject as? String else { return }
+        manager.setMagicPreset(id: id)
     }
 
     @objc private func updatePreset(_ sender: NSMenuItem) {
