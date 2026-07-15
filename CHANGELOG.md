@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.2.0] — 2026-07-15
+
+### Changed
+- **Presets now capture every open app, not just managed ones.** Saving or
+  updating a preset (and "Capture Current Layout") snapshots the exact window
+  frames of every regular app with open windows, on all displays. Newly
+  captured apps are auto-added to the managed list (Remember mode) so
+  WindowKeeper keeps watching them afterwards.
+- **Applying a preset is a one-click full restore.** Apps in the preset that
+  aren't running are launched automatically and their windows placed on the
+  saved display/position as soon as they appear (window-wait extended from
+  ~5 s to ~15 s for slow launchers). Apps missing a rule get one on the fly,
+  so old presets restore too. Running apps NOT in the preset are left alone;
+  apps no longer installed are logged as such.
+
 ## [1.1.0] — 2026-07-12
 
 ### Fixed

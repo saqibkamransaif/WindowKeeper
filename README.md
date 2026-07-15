@@ -12,9 +12,11 @@ zone you assigned.
 - **Zones** — assign an app to a screen region (halves, thirds, two-thirds,
   center, maximize — the layouts that make an ultra-wide useful). Every new
   window of that app snaps there automatically.
-- **Layout presets** — capture the whole current arrangement as a named preset;
-  apply or update it any time from the menu.
-- **Opt-in per app** — only apps you mark as *Managed* are touched.
+- **Layout presets** — capture every open app's exact window arrangement across
+  all displays as a named preset. Applying it is a one-click restore: apps that
+  aren't running are launched, and every window goes back to its saved place.
+- **Opt-in per app** — day-to-day, only apps you mark as *Managed* are touched
+  (apps captured into a preset become managed automatically).
 - **Multi-display aware** — zones can target any connected display.
 
 ## Install
@@ -53,9 +55,9 @@ Everything lives in the menu-bar icon:
 | Menu item | What it does |
 |-----------|--------------|
 | Enabled | Master on/off switch |
-| Capture Current Layout | Saves the frames of all managed apps right now |
-| Presets → Save Current as New Preset… | Snapshot the current layout under a name |
-| Presets → *name* → Apply / Update / Delete | Manage saved layouts |
+| Capture Current Layout | Saves the frames of every open app right now |
+| Presets → Save Current as New Preset… | Snapshot every open app's layout under a name |
+| Presets → *name* → Apply / Update / Delete | Apply launches missing apps and restores every window |
 | Manage Apps → *app* → Managed | Opt an app in or out |
 | Manage Apps → *app* → Remember Last Position | Restore where you last put it (default) |
 | Manage Apps → *app* → Snap to Zone → *zone* | Pin the app to a screen region |

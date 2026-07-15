@@ -150,12 +150,13 @@ final class WindowManager {
     // MARK: - Placement
 
     /// Apply a rule to an app's windows, retrying while the app is still
-    /// creating them (up to ~5 s).
+    /// creating them (up to ~15 s — preset-launched apps can be slow to show
+    /// their first window).
     func applyRule(to app: NSRunningApplication, attempt: Int) {
         guard let rule = managedRule(for: app) else { return }
         let windows = AccessibilityService.windows(pid: app.processIdentifier)
         if windows.isEmpty {
-            guard attempt < 16 else {
+            guard attempt < 50 else {
                 Log.shared.info("No windows appeared for \(rule.bundleID); giving up")
                 return
             }
@@ -276,19 +277,36 @@ final class WindowManager {
         }
     }
 
-    /// Snapshot current frames of every managed running app into memory + disk.
-    /// Returns the snapshot so callers can report what was captured.
+    /// Snapshot current frames of EVERY regular app with open windows (on any
+    /// display) into memory + disk — not just managed apps. Apps captured this
+    /// way are auto-added to the managed list (Remember mode) so WindowKeeper
+    /// keeps watching them. Returns the snapshot so callers can report what
+    /// was captured.
     @discardableResult
     func captureAllFrames() -> [String: [SavedFrame]] {
         let displays = DisplayInfo.current()
         var snapshot: [String: [SavedFrame]] = [:]
+        var autoManaged: [String] = []
         for app in NSWorkspace.shared.runningApplications {
-            guard let rule = managedRule(for: app) else { continue }
+            guard app.activationPolicy == .regular,
+                  let bundleID = app.bundleIdentifier,
+                  bundleID != Bundle.main.bundleIdentifier else { continue }
             let frames = AccessibilityService.windows(pid: app.processIdentifier)
                 .compactMap { AccessibilityService.frame(of: $0) }
                 .map { LayoutEngine.makeSaved(from: $0, displays: displays) }
             guard !frames.isEmpty else { continue }
-            snapshot[rule.bundleID] = frames
+            snapshot[bundleID] = frames
+            if !config.rules.contains(where: { $0.bundleID == bundleID }) {
+                config.upsert(rule: AppRule(bundleID: bundleID,
+                                            displayName: app.localizedName ?? bundleID))
+                attach(to: app, applyPlacement: false)
+                autoManaged.append(bundleID)
+            }
+        }
+        if !autoManaged.isEmpty {
+            try? store.save(config: config)
+            Log.shared.info("Auto-managed \(autoManaged.count) app(s): "
+                + autoManaged.sorted().joined(separator: ", "))
         }
         for (bundleID, frames) in snapshot {
             rememberedFrames[bundleID] = frames
@@ -335,29 +353,32 @@ final class WindowManager {
         try? store.save(presets: presets)
     }
 
-    /// Apply a preset's frames directly to every running app captured in it —
-    /// deliberately bypassing zone rules: an explicit "Apply" wins over
-    /// standing placement modes. Frames also become the remembered frames so
-    /// apps launched later follow the preset too.
+    /// Apply a preset: place windows of running apps immediately, and LAUNCH
+    /// apps in the preset that aren't running — their windows are placed by
+    /// the launch pipeline (appDidLaunch → attach → applyRule) from the
+    /// remembered frames written below. Deliberately bypasses zone rules: an
+    /// explicit "Apply" wins over standing placement modes. Running apps NOT
+    /// in the preset are left untouched.
     func applyPreset(id: String) {
         guard let preset = presets.first(where: { $0.id == id }) else { return }
         for (bundleID, frames) in preset.frames {
             rememberedFrames[bundleID] = frames
         }
         try? store.save(frames: rememberedFrames)
+        ensureRules(for: Array(preset.frames.keys))
 
         let displays = DisplayInfo.current()
         var appliedApps = 0
-        var notRunning: [String] = []
+        var toLaunch: [String] = []
         for (bundleID, savedFrames) in preset.frames {
             let running = NSWorkspace.shared.runningApplications
                 .filter { $0.bundleIdentifier == bundleID }
             guard let app = running.first else {
-                notRunning.append(bundleID)
+                toLaunch.append(bundleID)
                 continue
             }
             let windows = AccessibilityService.windows(pid: app.processIdentifier)
-            guard !windows.isEmpty else { notRunning.append(bundleID); continue }
+            guard !windows.isEmpty else { toLaunch.append(bundleID); continue }
             let resolved = savedFrames.compactMap {
                 LayoutEngine.resolve(saved: $0, displays: displays)
             }
@@ -368,11 +389,64 @@ final class WindowManager {
             place(windows: windows, targets: targets, bundleID: bundleID)
             appliedApps += 1
         }
-        var summary = "Preset applied: \(preset.name) — \(appliedApps) app(s)"
-        if !notRunning.isEmpty {
-            summary += "; not running: \(notRunning.joined(separator: ", "))"
+
+        var launched: [String] = []
+        var missing: [String] = []
+        for bundleID in toLaunch {
+            if launchApp(bundleID: bundleID) {
+                launched.append(bundleID)
+            } else {
+                missing.append(bundleID)
+            }
+        }
+
+        var summary = "Preset applied: \(preset.name) — \(appliedApps) app(s) placed"
+        if !launched.isEmpty {
+            summary += "; launching: \(launched.joined(separator: ", "))"
+        }
+        if !missing.isEmpty {
+            summary += "; not installed: \(missing.joined(separator: ", "))"
         }
         Log.shared.info(summary)
+    }
+
+    /// Make sure every bundle ID has a managed rule so the launch pipeline
+    /// places its windows (presets may predate auto-managing, or rules may
+    /// have been removed since the preset was saved).
+    private func ensureRules(for bundleIDs: [String]) {
+        var added = false
+        for bundleID in bundleIDs
+        where !config.rules.contains(where: { $0.bundleID == bundleID }) {
+            let app = NSWorkspace.shared.runningApplications
+                .first { $0.bundleIdentifier == bundleID }
+            let name = app?.localizedName
+                ?? NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleID)?
+                    .deletingPathExtension().lastPathComponent
+                ?? bundleID
+            config.upsert(rule: AppRule(bundleID: bundleID, displayName: name))
+            if let app { attach(to: app, applyPlacement: false) }
+            added = true
+        }
+        if added { try? store.save(config: config) }
+    }
+
+    /// Launch (or re-open, if running without windows) an app by bundle ID.
+    /// Returns false when the app can't be found on disk. Placement happens
+    /// asynchronously via the AX window-created / launch notifications.
+    private func launchApp(bundleID: String) -> Bool {
+        guard let url = NSWorkspace.shared
+            .urlForApplication(withBundleIdentifier: bundleID) else {
+            Log.shared.error("Cannot launch \(bundleID): app not installed")
+            return false
+        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        NSWorkspace.shared.openApplication(at: url, configuration: configuration) { _, error in
+            if let error {
+                Log.shared.error("Launch failed for \(bundleID): \(error.localizedDescription)")
+            }
+        }
+        return true
     }
 
     private func displayNames(for bundleIDs: [String]) -> [String] {
