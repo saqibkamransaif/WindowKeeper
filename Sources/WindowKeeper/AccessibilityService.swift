@@ -93,4 +93,67 @@ enum AccessibilityService {
         return .adjusted(lastSeen ?? frame)
     }
 
+    // MARK: - New-window creation
+
+    /// Ask an app to open one more window by pressing its own "New Window"
+    /// menu item (File → New Window, Shell → New Window with Profile…,
+    /// File → New Finder Window, …). Works without activating the app and
+    /// without synthetic keystrokes, so it can never land in the wrong app or
+    /// trigger an unrelated ⌘N action. Returns false when no such item exists.
+    static func openNewWindow(pid: pid_t) -> Bool {
+        let app = AXUIElementCreateApplication(pid)
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(app, kAXMenuBarAttribute as CFString,
+                                            &value) == .success,
+              let menuBar = value else { return false }
+        guard let item = findNewWindowItem(in: menuBar as! AXUIElement, depth: 0)
+        else { return false }
+        return AXUIElementPerformAction(item, kAXPressAction as CFString) == .success
+    }
+
+    /// Depth-first search of the menu tree for an enabled item that opens a
+    /// window: exact "New Window", a variant like "New Window with Profile –
+    /// Basic", or the New…Window shape ("New Finder Window"). Excludes
+    /// look-alikes such as "New File"/"New Tab" by requiring both words.
+    private static func findNewWindowItem(in element: AXUIElement,
+                                          depth: Int) -> AXUIElement? {
+        guard depth < 5 else { return nil }
+        var childrenValue: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(element, kAXChildrenAttribute as CFString,
+                                            &childrenValue) == .success,
+              let children = childrenValue as? [AXUIElement] else { return nil }
+        var fallback: AXUIElement?
+        for child in children {
+            var titleValue: CFTypeRef?
+            AXUIElementCopyAttributeValue(child, kAXTitleAttribute as CFString, &titleValue)
+            if let title = titleValue as? String, isEnabled(child) {
+                if title == "New Window" || title.hasPrefix("New Window ") {
+                    if !hasSubmenu(child) { return child }
+                } else if fallback == nil, title.hasPrefix("New "),
+                          title.hasSuffix(" Window") || title.hasSuffix(" Window…") {
+                    if !hasSubmenu(child) { fallback = child }
+                }
+            }
+            if let found = findNewWindowItem(in: child, depth: depth + 1) {
+                return found
+            }
+        }
+        return fallback
+    }
+
+    private static func hasSubmenu(_ item: AXUIElement) -> Bool {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(item, kAXChildrenAttribute as CFString,
+                                            &value) == .success,
+              let children = value as? [AXUIElement] else { return false }
+        return !children.isEmpty
+    }
+
+    private static func isEnabled(_ item: AXUIElement) -> Bool {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(item, kAXEnabledAttribute as CFString,
+                                            &value) == .success else { return false }
+        return (value as? Bool) ?? false
+    }
+
 }

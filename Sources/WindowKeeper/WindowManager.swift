@@ -20,6 +20,37 @@ final class WindowManager {
     private var pendingPlacements: [String: Date] = [:]
     private static let pendingPlacementWindow: TimeInterval = 60
 
+    /// State of the reconciliation loop that finishes an explicit preset
+    /// apply. Launch notifications are a fast path only — this loop is the
+    /// guarantee that every saved frame ends up with a window on it, even
+    /// when a notification never arrives, an app is slow to create windows,
+    /// or the display arrangement is still settling right after boot.
+    private struct ActiveRestore {
+        let presetID: String
+        let deadline: Date
+        /// Apps verified fully in place. Once done, an app is never touched
+        /// again during this restore (so the user can drag windows without
+        /// fighting the loop) — unless the display arrangement changes.
+        var doneApps: Set<String> = []
+        /// Window count seen for each app on the previous pass. New windows
+        /// are only requested when the count is stable across two passes, so
+        /// an app still restoring its own windows isn't handed duplicates.
+        var lastWindowCounts: [String: Int] = [:]
+        /// New-window requests issued per app, capped at the saved count.
+        var newWindowRequests: [String: Int] = [:]
+        /// Apps whose menus offer no "New Window" item — logged once.
+        var newWindowUnsupported: Set<String> = []
+        /// Placements macOS overrode (e.g. Terminal snapping heights to text
+        /// rows). A window sitting on the adjusted frame counts as in place —
+        /// re-fighting the WindowServer every pass would never converge.
+        var acceptedAdjustments: [String: [(target: WindowFrame, final: WindowFrame)]] = [:]
+        /// Apps re-launched by the loop after the initial launch went nowhere.
+        var relaunched: Set<String> = []
+    }
+    private var activeRestore: ActiveRestore?
+    private static let restoreDeadline: TimeInterval = 120
+    private static let reconcileInterval: TimeInterval = 3
+
     init(store: LayoutStore) {
         self.store = store
         self.config = store.loadConfig()
@@ -38,6 +69,12 @@ final class WindowManager {
         DistributedNotificationCenter.default().addObserver(
             self, selector: #selector(handleCommand(_:)),
             name: Notification.Name(Self.commandNotification), object: nil)
+        // Only acted on while a restore is reconciling: displays waking up
+        // after boot shift every resolved target, so verified apps must be
+        // re-verified against the new geometry.
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(screensChanged),
+            name: NSApplication.didChangeScreenParametersNotification, object: nil)
         Log.shared.info("WindowManager started — \(config.rules.count) rule(s), "
             + "\(presets.count) preset(s), passive mode")
     }
@@ -120,17 +157,23 @@ final class WindowManager {
         }
     }
 
+    /// Saved frames resolved against the current displays, titles kept for
+    /// identity matching.
+    private func resolvedSaved(_ savedFrames: [SavedFrame], displays: [DisplayInfo])
+        -> [(frame: WindowFrame, title: String?)] {
+        savedFrames.compactMap { saved in
+            guard let frame = LayoutEngine.resolve(saved: saved, displays: displays)
+            else { return nil }
+            return (frame, saved.title)
+        }
+    }
+
     /// Resolve saved frames against the current displays and match them to
     /// live windows by identity (title key) and proximity.
     private func assignedTargets(for windows: [AXUIElement],
                                  savedFrames: [SavedFrame],
                                  displays: [DisplayInfo]) -> [WindowFrame?] {
-        let resolved: [(frame: WindowFrame, title: String?)] = savedFrames.compactMap {
-            saved -> (frame: WindowFrame, title: String?)? in
-            guard let frame = LayoutEngine.resolve(saved: saved, displays: displays)
-            else { return nil }
-            return (frame, saved.title)
-        }
+        let resolved = resolvedSaved(savedFrames, displays: displays)
         return LayoutEngine.assignTargets(
             current: windows.map { AccessibilityService.frame(of: $0) },
             saved: resolved.map(\.frame),
@@ -138,9 +181,14 @@ final class WindowManager {
             savedTitles: resolved.map(\.title))
     }
 
-    /// Set frames on windows with verification and honest logging.
-    private func place(windows: [AXUIElement], targets: [WindowFrame?], bundleID: String) {
+    /// Set frames on windows with verification and honest logging. Returns
+    /// the placements macOS overrode so callers (the reconciliation loop) can
+    /// accept them instead of re-fighting the WindowServer forever.
+    @discardableResult
+    private func place(windows: [AXUIElement], targets: [WindowFrame?],
+                       bundleID: String) -> [(target: WindowFrame, final: WindowFrame)] {
         var placed = 0, adjusted = 0, failed = 0, skipped = 0
+        var adjustments: [(target: WindowFrame, final: WindowFrame)] = []
         for (window, target) in zip(windows, targets) {
             guard let target else { skipped += 1; continue }
             if let current = AccessibilityService.frame(of: window),
@@ -149,6 +197,7 @@ final class WindowManager {
             case .placed: placed += 1
             case .adjusted(let final):
                 adjusted += 1
+                adjustments.append((target, final))
                 Log.shared.error("macOS adjusted a \(bundleID) window: wanted "
                     + "(\(target.x),\(target.y) \(target.width)x\(target.height)) got "
                     + "(\(final.x),\(final.y) \(final.width)x\(final.height))")
@@ -159,6 +208,7 @@ final class WindowManager {
             Log.shared.info("\(bundleID): placed \(placed), adjusted \(adjusted), "
                 + "failed \(failed), already-in-place/skipped \(skipped)")
         }
+        return adjustments
     }
 
     func resolveZone(id: String) -> WindowFrame? {
@@ -380,6 +430,141 @@ final class WindowManager {
             summary += "; not installed: \(missing.joined(separator: ", "))"
         }
         Log.shared.info(summary)
+
+        // The apply above is a fast first pass; reconciliation owns the
+        // guarantee that every saved window ends up open and in place.
+        activeRestore = ActiveRestore(
+            presetID: id, deadline: Date().addingTimeInterval(Self.restoreDeadline))
+        scheduleReconcile(after: Self.reconcileInterval)
+    }
+
+    // MARK: - Restore reconciliation
+
+    @objc private func screensChanged() {
+        guard activeRestore != nil else { return }
+        Log.shared.info("Display arrangement changed mid-restore — re-verifying all apps")
+        activeRestore?.doneApps.removeAll()
+    }
+
+    private func scheduleReconcile(after delay: TimeInterval) {
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            self?.reconcile()
+        }
+    }
+
+    /// One reconciliation pass: verify every app in the restoring preset and
+    /// nudge whatever is short — relaunch missing apps, ask for missing
+    /// windows, re-place drifted ones. Ends when a pass finds everything in
+    /// place, or at the deadline with an honest report of what's still short.
+    private func reconcile() {
+        guard let restore = activeRestore,
+              let preset = presets.first(where: { $0.id == restore.presetID })
+        else { return }
+        let displays = DisplayInfo.current()
+        var shortfalls: [String] = []
+
+        for (bundleID, savedFrames) in preset.frames
+        where !restore.doneApps.contains(bundleID) {
+            let status = reconcileApp(bundleID: bundleID, savedFrames: savedFrames,
+                                      displays: displays)
+            if status.satisfied {
+                activeRestore?.doneApps.insert(bundleID)
+            } else {
+                shortfalls.append("\(bundleID) (\(status.detail))")
+            }
+        }
+
+        if shortfalls.isEmpty {
+            Log.shared.info("Restore reconciled: \(preset.name) — every saved "
+                + "window is open and in place")
+            activeRestore = nil
+        } else if Date() > restore.deadline {
+            Log.shared.error("Restore deadline reached for \(preset.name); still short: "
+                + shortfalls.joined(separator: ", "))
+            activeRestore = nil
+        } else {
+            scheduleReconcile(after: Self.reconcileInterval)
+        }
+    }
+
+    /// Reconcile a single app against its saved frames. Returns whether it is
+    /// fully satisfied and, if not, a human-readable reason for the log.
+    private func reconcileApp(bundleID: String, savedFrames: [SavedFrame],
+                              displays: [DisplayInfo])
+        -> (satisfied: Bool, detail: String) {
+        guard let app = NSWorkspace.shared.runningApplications
+            .first(where: { $0.bundleIdentifier == bundleID }) else {
+            // Initial launch went nowhere (or the app quit) — try once more.
+            if activeRestore?.relaunched.contains(bundleID) == false,
+               launchApp(bundleID: bundleID) {
+                activeRestore?.relaunched.insert(bundleID)
+                Log.shared.info("Restore: relaunching \(bundleID)")
+            }
+            return (false, "not running")
+        }
+
+        let windows = AccessibilityService.windows(pid: app.processIdentifier)
+        let currentFrames = windows.map { AccessibilityService.frame(of: $0) }
+        let resolved = resolvedSaved(savedFrames, displays: displays)
+        let progress = LayoutEngine.restoreProgress(
+            current: currentFrames,
+            saved: resolved.map(\.frame),
+            currentTitles: windows.map { AccessibilityService.title(of: $0) },
+            savedTitles: resolved.map(\.title))
+
+        // A window macOS already forced off its exact target (row-snapped
+        // Terminal heights and the like) counts as in place; re-placing it
+        // every pass would never converge.
+        let accepted = activeRestore?.acceptedAdjustments[bundleID] ?? []
+        let outOfPlace = progress.outOfPlace.filter { move in
+            guard let frame = currentFrames[move.windowIndex] else { return true }
+            return !accepted.contains {
+                LayoutEngine.framesMatch($0.target, move.target)
+                    && LayoutEngine.framesMatch($0.final, frame)
+            }
+        }
+        if progress.missingWindows == 0 && outOfPlace.isEmpty { return (true, "") }
+
+        if !outOfPlace.isEmpty {
+            var targets = [WindowFrame?](repeating: nil, count: windows.count)
+            for move in outOfPlace { targets[move.windowIndex] = move.target }
+            let adjustments = place(windows: windows, targets: targets, bundleID: bundleID)
+            activeRestore?.acceptedAdjustments[bundleID, default: []]
+                .append(contentsOf: adjustments)
+        }
+        if progress.missingWindows > 0 {
+            requestMissingWindows(count: progress.missingWindows, cap: savedFrames.count,
+                                  bundleID: bundleID, app: app,
+                                  currentWindowCount: windows.count)
+        }
+        activeRestore?.lastWindowCounts[bundleID] = windows.count
+        var detail: [String] = []
+        if progress.missingWindows > 0 { detail.append("\(progress.missingWindows) window(s) missing") }
+        if !outOfPlace.isEmpty { detail.append("\(outOfPlace.count) out of place") }
+        return (false, detail.joined(separator: ", "))
+    }
+
+    /// Ask an app for one more window, carefully: only when its window count
+    /// has been stable across two passes (an app mid-launch restoring its own
+    /// windows must not be handed duplicates), one request per pass, total
+    /// requests capped at the saved count.
+    private func requestMissingWindows(count: Int, cap: Int, bundleID: String,
+                                       app: NSRunningApplication,
+                                       currentWindowCount: Int) {
+        guard let restore = activeRestore,
+              !restore.newWindowUnsupported.contains(bundleID),
+              restore.lastWindowCounts[bundleID] == currentWindowCount,
+              restore.newWindowRequests[bundleID, default: 0] < cap
+        else { return }
+        if AccessibilityService.openNewWindow(pid: app.processIdentifier) {
+            activeRestore?.newWindowRequests[bundleID, default: 0] += 1
+            Log.shared.info("Restore: asked \(bundleID) for a new window "
+                + "(\(count) still missing)")
+        } else {
+            activeRestore?.newWindowUnsupported.insert(bundleID)
+            Log.shared.error("Restore: \(bundleID) offers no New Window menu item; "
+                + "cannot recreate its missing window(s)")
+        }
     }
 
     /// Make sure every bundle ID has a managed rule so the launch pipeline

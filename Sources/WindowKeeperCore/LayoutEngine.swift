@@ -249,6 +249,52 @@ public enum LayoutEngine {
         }
     }
 
+    /// One window that must move, and where to.
+    public struct Misplacement: Equatable {
+        public let windowIndex: Int
+        public let target: WindowFrame
+        public init(windowIndex: Int, target: WindowFrame) {
+            self.windowIndex = windowIndex
+            self.target = target
+        }
+    }
+
+    /// How far a restore is from "every saved frame has a window on it".
+    public struct RestoreProgress: Equatable {
+        /// Saved frames with no window to occupy them — windows that still
+        /// need to be created (or are yet to appear).
+        public let missingWindows: Int
+        /// Existing windows whose assigned frame doesn't match where they are.
+        public let outOfPlace: [Misplacement]
+        public var satisfied: Bool { missingWindows == 0 && outOfPlace.isEmpty }
+        public init(missingWindows: Int, outOfPlace: [Misplacement]) {
+            self.missingWindows = missingWindows
+            self.outOfPlace = outOfPlace
+        }
+    }
+
+    /// Measure a restore against its goal using the same identity/proximity
+    /// matching as placement (`assignTargets`), so "done" here means exactly
+    /// what an apply would have produced. Extra windows beyond the saved
+    /// count are the user's business and never count against the restore.
+    public static func restoreProgress(current: [WindowFrame?],
+                                       saved: [WindowFrame],
+                                       currentTitles: [String?] = [],
+                                       savedTitles: [String?] = []) -> RestoreProgress {
+        let targets = assignTargets(current: current, saved: saved,
+                                    currentTitles: currentTitles,
+                                    savedTitles: savedTitles)
+        let assigned = targets.compactMap { $0 }.count
+        var outOfPlace: [Misplacement] = []
+        for (i, target) in targets.enumerated() {
+            guard let target else { continue }
+            if let frame = current[i], framesMatch(frame, target) { continue }
+            outOfPlace.append(Misplacement(windowIndex: i, target: target))
+        }
+        return RestoreProgress(missingWindows: saved.count - assigned,
+                               outOfPlace: outOfPlace)
+    }
+
     /// Identity key of a window title: the last " - "-separated token, where
     /// browsers append the profile name (e.g. "Tab - Comet - Saqib Kamran" →
     /// "Saqib Kamran"). Titles without that structure have no key.

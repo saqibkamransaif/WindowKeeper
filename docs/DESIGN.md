@@ -55,10 +55,19 @@ WindowKeeper      (executable — AppKit menu-bar app)
   identities never cross. Then proximity: in-place windows keep their frame,
   the rest claim the closest free frame (center distance + size penalty), and
   windows beyond the saved count are left untouched.
-- **Preset-launch placement is the only background trigger**: `applyPreset`
-  records launched bundle IDs in `pendingPlacements` (60 s expiry); the
-  `didLaunchApplication` handler places windows only for those. Apps create
-  windows asynchronously after launch, so placement retries up to ~15 s.
+- **Restore reconciliation is the only background activity**: `applyPreset`
+  does a fast first pass (place running apps, launch the rest), then a
+  reconciliation loop re-verifies the whole preset every 3 s for up to 2 min
+  until every saved frame has a window on it: apps still not running are
+  relaunched once, drifted windows are re-placed against current display
+  geometry (a mid-restore arrangement change re-verifies everything), and apps
+  with fewer windows than saved are asked for more via their own "New Window"
+  menu item (AX press; requested only after the window count is stable across
+  two passes, so slow starters restoring their own windows never get
+  duplicates). Placements macOS overrides (row-snapped Terminal heights) are
+  accepted rather than re-fought. `pendingPlacements` + `didLaunchApplication`
+  remain as a fast path (60 s expiry, ~15 s window-appearance retry); the loop
+  is the guarantee and ends with an honest log of anything still short.
 - **Display-relative frames**: saved frames are stored relative to a display's
   hardware UUID (`SavedFrame`), so layouts survive monitor unplug/replug and
   primary-display changes; missing displays resolve to the main display, clamped
