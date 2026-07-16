@@ -2,8 +2,8 @@ import AppKit
 import ApplicationServices
 import WindowKeeperCore
 
-/// Thin wrappers around the Accessibility (AX) API: enumerate app windows,
-/// read/write frames, and observe window events.
+/// Thin wrappers around the Accessibility (AX) API: enumerate app windows
+/// and read/write frames.
 enum AccessibilityService {
 
     static func isTrusted(prompt: Bool = false) -> Bool {
@@ -85,29 +85,4 @@ enum AccessibilityService {
         return .adjusted(lastSeen ?? frame)
     }
 
-    /// Create an observer on an app for window lifecycle/geometry events.
-    /// `refcon` is passed through to the C callback.
-    static func makeObserver(pid: pid_t,
-                             callback: @escaping AXObserverCallback,
-                             refcon: UnsafeMutableRawPointer?) -> AXObserver? {
-        var observer: AXObserver?
-        guard AXObserverCreate(pid, callback, &observer) == .success,
-              let observer else { return nil }
-        let app = AXUIElementCreateApplication(pid)
-        for notification in [kAXWindowCreatedNotification,
-                             kAXWindowMovedNotification,
-                             kAXWindowResizedNotification] {
-            AXObserverAddNotification(observer, app, notification as CFString, refcon)
-        }
-        CFRunLoopAddSource(CFRunLoopGetMain(),
-                           AXObserverGetRunLoopSource(observer),
-                           .defaultMode)
-        return observer
-    }
-
-    static func removeObserver(_ observer: AXObserver) {
-        CFRunLoopRemoveSource(CFRunLoopGetMain(),
-                              AXObserverGetRunLoopSource(observer),
-                              .defaultMode)
-    }
 }

@@ -4,15 +4,18 @@
 On an ultra-wide monitor, macOS does not reliably reopen app windows at the size and
 position you left them. The user wants:
 
-1. **Remember & restore** — for selected apps, remember window size/position and restore
-   them automatically every time the app opens.
-2. **Zones** — assign an app to a fixed screen region ("a special window for them");
-   whenever that app opens, its windows snap to that region automatically.
-3. **Presets** — capture the whole current layout (every open app, all displays)
+1. **Presets** — capture the whole current layout (every open app, all displays)
    as a named preset, update it later, and restore it with one click: closed
    apps are relaunched and every window is placed back.
-4. **App selection** — day-to-day management is opt-in per app; apps captured
-   into a preset are opted in automatically.
+2. **Passivity** — windows move ONLY on explicit user actions (save, apply,
+   snap to zone). Nothing is repositioned or re-captured automatically; the
+   user's day-to-day window juggling (e.g. switching between browser profile
+   windows) must never trigger a placement. (Automatic remember-on-move and
+   place-on-launch existed through 1.3.x and were removed in 1.4.0 — z-order
+   changes made them shuffle look-alike windows.)
+3. **Zones** — snap an app to a fixed screen region on demand.
+4. **App selection** — management is opt-in per app; apps captured into a
+   preset are opted in automatically.
 
 ## Architecture
 
@@ -27,8 +30,8 @@ WindowKeeperCore  (library — pure logic, no AppKit/AX dependency beyond CoreGr
 WindowKeeper      (executable — AppKit menu-bar app)
 ├── main.swift                 arg parsing (--diagnose, --version, --frames, --do) or GUI launch
 ├── AppDelegate.swift          NSStatusItem lifecycle
-├── AccessibilityService.swift AXUIElement wrappers (windows, get/set frame, observers)
-├── WindowManager.swift        orchestration: launch events → apply rules; moves → save
+├── AccessibilityService.swift AXUIElement wrappers (windows, get/set frame)
+├── WindowManager.swift        orchestration: captures, restores, preset-launch placement
 ├── StatusMenuController.swift menu UI (enable, capture, presets, manage apps, zones)
 └── Log.swift                  file logger → ~/Library/Application Support/WindowKeeper/logs
 ```
@@ -43,12 +46,16 @@ WindowKeeper      (executable — AppKit menu-bar app)
 - **Zones are fractional** (0–1 of a display's visible frame) so the same zone definition
   works on any monitor, ultra-wide included. Built-in zones include halves, thirds and
   two-thirds — the useful set for a 21:9/32:9 screen.
-- **Feedback-loop guard**: when WindowKeeper itself moves a window, move/resize
-  notifications for that app are suppressed for a short window so we don't re-save
-  frames we just applied.
-- **Restore-on-launch retries**: apps create windows asynchronously after launch, so
-  placement retries up to ~15 s until windows appear (preset-launched apps can be
-  slow to show their first window).
+- **Proximity window matching**: macOS lists an app's windows in z-order, so
+  order-based frame assignment shuffles multi-window apps whenever a different
+  window is focused. `LayoutEngine.assignTargets` matches windows to saved
+  frames instead: in-place windows keep their frame, the rest claim the
+  closest free frame (center distance + size penalty), and windows beyond the
+  saved count are left untouched.
+- **Preset-launch placement is the only background trigger**: `applyPreset`
+  records launched bundle IDs in `pendingPlacements` (60 s expiry); the
+  `didLaunchApplication` handler places windows only for those. Apps create
+  windows asynchronously after launch, so placement retries up to ~15 s.
 - **Display-relative frames**: saved frames are stored relative to a display's
   hardware UUID (`SavedFrame`), so layouts survive monitor unplug/replug and
   primary-display changes; missing displays resolve to the main display, clamped
@@ -63,8 +70,8 @@ WindowKeeper      (executable — AppKit menu-bar app)
 
 | Mode | Behavior |
 |------|----------|
-| `remember` | Last user-arranged frame(s) are saved (debounced 1 s after move/resize) and re-applied to windows on every launch, by window order. |
-| `zone(id)` | Every window of the app is snapped to the zone's rect on launch and on new-window creation. |
+| `remember` | Explicit captures (preset save/update, Capture Current Layout) store the app's frames; explicit restores re-apply them via proximity matching. |
+| `zone(id)` | Selecting the zone snaps every current window of the app to the zone's rect; preset applies still restore captured frames. |
 
 ## Presets
 
