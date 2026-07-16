@@ -128,20 +128,19 @@ public enum LayoutEngine {
     }
 
     /// Merge a fresh capture into a preset's existing frames. Captured apps
-    /// overwrite their entries; apps in `running` that the capture missed
-    /// (window in another Space, minimized, or hidden) keep their existing
-    /// frames instead of being silently dropped; apps neither captured nor
-    /// running are removed. `kept` lists the preserved bundle IDs so callers
-    /// can report them.
+    /// overwrite their entries; every app the capture missed keeps its
+    /// existing frames — whether its windows are on another Space, minimized,
+    /// hidden, or the app isn't running at all. An update refreshes what it
+    /// can see and never silently shrinks the layout; dropping an app is an
+    /// explicit act (save a fresh preset). `kept` lists the preserved bundle
+    /// IDs so callers can report them.
     public static func mergePresetFrames(
         existing: [String: [SavedFrame]],
-        captured: [String: [SavedFrame]],
-        running: Set<String>
+        captured: [String: [SavedFrame]]
     ) -> (frames: [String: [SavedFrame]], kept: [String]) {
         var merged = captured
         var kept: [String] = []
-        for (bundleID, frames) in existing
-        where captured[bundleID] == nil && running.contains(bundleID) {
+        for (bundleID, frames) in existing where captured[bundleID] == nil {
             merged[bundleID] = frames
             kept.append(bundleID)
         }

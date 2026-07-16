@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.6.1] — 2026-07-16
+
+### Fixed
+- **Updating a preset no longer drops apps that aren't running.** "Update
+  from current layout" only captures windows it can see, and 1.3.1 already
+  preserved entries for running apps whose windows were on another Space —
+  but apps that weren't running at update time still fell out silently. That
+  is exactly how ChatGPT and Perplexity vanished from a daily preset: a later
+  restore did its job perfectly against a shrunken list, leaving two screen
+  regions empty. An update now refreshes what it can see and keeps every
+  other entry; removing an app from a layout is an explicit act (save a fresh
+  preset), never a side effect of when the update happened to run.
+
 ## [1.6.0] — 2026-07-16
 
 ### Added

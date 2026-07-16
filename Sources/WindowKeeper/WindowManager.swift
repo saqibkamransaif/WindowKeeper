@@ -339,18 +339,16 @@ final class WindowManager {
     }
 
     /// Re-snapshot a preset. Apps whose windows the capture can't see right
-    /// now (another Space, minimized, hidden) but that are still running keep
-    /// their existing entry — otherwise updating a preset while one window
-    /// sits on a different Space silently drops that app, and a later apply
-    /// "ignores" it.
+    /// now (another Space, minimized, hidden — or the app isn't running) keep
+    /// their existing entry — otherwise updating a preset silently drops
+    /// them, and a later restore "ignores" part of the layout. Removing an
+    /// app from a layout is an explicit act: save a fresh preset.
     @discardableResult
     func updatePreset(id: String) -> [String] {
         guard let i = presets.firstIndex(where: { $0.id == id }) else { return [] }
         let captured = captureAllFrames()
-        let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
         let result = LayoutEngine.mergePresetFrames(existing: presets[i].frames,
-                                                    captured: captured,
-                                                    running: running)
+                                                    captured: captured)
         presets[i].frames = result.frames
         try? store.save(presets: presets)
         var message = "Preset updated: \(presets[i].name) (\(result.frames.count) app(s))"
