@@ -47,7 +47,8 @@ public enum LayoutEngine {
     /// owning display is the one containing the window's center (falling back
     /// to the main display), so the frame survives arrangement changes.
     public static func makeSaved(from frame: WindowFrame,
-                                 displays: [DisplayInfo]) -> SavedFrame {
+                                 displays: [DisplayInfo],
+                                 title: String? = nil) -> SavedFrame {
         let center = CGPoint(x: frame.x + frame.width / 2,
                              y: frame.y + frame.height / 2)
         let owner = displays.first { $0.visibleRect.contains(center) }
@@ -55,12 +56,12 @@ public enum LayoutEngine {
             ?? displays.first
         guard let owner else {
             return SavedFrame(displayUUID: nil, relX: frame.x, relY: frame.y,
-                              width: frame.width, height: frame.height)
+                              width: frame.width, height: frame.height, title: title)
         }
         return SavedFrame(displayUUID: owner.uuid,
                           relX: frame.x - owner.visibleTopLeftAX.x,
                           relY: frame.y - owner.visibleTopLeftAX.y,
-                          width: frame.width, height: frame.height)
+                          width: frame.width, height: frame.height, title: title)
     }
 
     /// Resolve a SavedFrame against the current displays into an absolute AX
@@ -147,52 +148,116 @@ public enum LayoutEngine {
         return (merged, kept.sorted())
     }
 
-    /// Assign saved frames to windows by proximity, not list order. macOS
-    /// reports windows in z-order, so activating a different window (e.g.
-    /// switching browser profiles) reorders the list — order-based matching
-    /// then shuffles every window. Assignment rules:
-    /// 1. A window already sitting on a saved frame keeps it.
-    /// 2. Remaining windows claim the globally closest free frame.
-    /// 3. Windows whose frame can't be read take leftover frames in order.
+    /// Assign saved frames to windows by identity and proximity, not list
+    /// order. macOS reports windows in z-order, so activating a different
+    /// window (e.g. switching browser profiles) reorders the list —
+    /// order-based matching then shuffles every window. Assignment rules:
+    /// 1. Slots and windows sharing a title key (the trailing " - " token,
+    ///    where browsers put the profile name) match each other first.
+    /// 2. A window already sitting on a saved frame keeps it.
+    /// 3. Remaining windows claim the globally closest free frame — but a
+    ///    keyed slot never grabs a window that clearly belongs to a
+    ///    different identity (both keyed, keys differ).
+    /// 4. Windows whose frame can't be read take leftover frames in order.
     /// Windows beyond the saved count get nil (left where they are).
     public static func assignTargets(current: [WindowFrame?],
-                                     saved: [WindowFrame]) -> [WindowFrame?] {
+                                     saved: [WindowFrame],
+                                     currentTitles: [String?] = [],
+                                     savedTitles: [String?] = []) -> [WindowFrame?] {
         var result = [WindowFrame?](repeating: nil, count: current.count)
-        var freeTargets = Array(saved.indices)
-        var freeWindows = Array(current.indices)
-
-        // Pass 1: exact (within tolerance) occupants keep their frame so a
-        // nearby moved window can't steal it.
-        for w in freeWindows {
-            guard let frame = current[w],
-                  let t = freeTargets.first(where: { framesMatch(saved[$0], frame) })
-            else { continue }
-            result[w] = saved[t]
-            freeTargets.removeAll { $0 == t }
+        let windowKeys = current.indices.map { i in
+            i < currentTitles.count ? titleKey(currentTitles[i]) : nil
         }
-        freeWindows.removeAll { result[$0] != nil }
+        let slotKeys = saved.indices.map { i in
+            i < savedTitles.count ? titleKey(savedTitles[i]) : nil
+        }
+        var freeWindows = Array(current.indices)
+        var freeSlots = Array(saved.indices)
 
-        // Pass 2: repeatedly take the closest remaining (window, frame) pair.
-        while !freeTargets.isEmpty {
-            var best: (w: Int, t: Int, score: Double)?
-            for w in freeWindows {
+        // Identity pass: each key shared by a slot and a window forms a
+        // group; assignment inside the group is by frame proximity.
+        var seenKeys = Set<String>()
+        for s in freeSlots {
+            guard let key = slotKeys[s], seenKeys.insert(key).inserted else { continue }
+            let groupSlots = freeSlots.filter { slotKeys[$0] == key }
+            let groupWindows = freeWindows.filter { windowKeys[$0] == key }
+            guard !groupWindows.isEmpty else { continue }
+            matchByFrame(windows: groupWindows, slots: groupSlots,
+                         current: current, saved: saved,
+                         result: &result, freeWindows: &freeWindows,
+                         freeSlots: &freeSlots)
+        }
+
+        // General pass: whatever is left, by frame proximity. Known-different
+        // identities never cross; unknown (key-less) ones behave as before.
+        matchByFrame(windows: freeWindows, slots: freeSlots,
+                     current: current, saved: saved,
+                     result: &result, freeWindows: &freeWindows,
+                     freeSlots: &freeSlots,
+                     compatible: { w, s in
+                         windowKeys[w] == nil || slotKeys[s] == nil
+                             || windowKeys[w] == slotKeys[s]
+                     })
+        return result
+    }
+
+    /// Frame-based matching over index subsets: exact occupants keep their
+    /// slot, then closest pairs, then unreadable windows take leftovers.
+    private static func matchByFrame(windows: [Int], slots: [Int],
+                                     current: [WindowFrame?], saved: [WindowFrame],
+                                     result: inout [WindowFrame?],
+                                     freeWindows: inout [Int], freeSlots: inout [Int],
+                                     compatible: (Int, Int) -> Bool = { _, _ in true }) {
+        var poolWindows = windows
+        var poolSlots = slots
+
+        func claim(_ w: Int, _ s: Int) {
+            result[w] = saved[s]
+            poolWindows.removeAll { $0 == w }
+            poolSlots.removeAll { $0 == s }
+            freeWindows.removeAll { $0 == w }
+            freeSlots.removeAll { $0 == s }
+        }
+
+        // Exact occupants first, so a nearby moved window can't steal a slot.
+        for w in poolWindows {
+            guard let frame = current[w],
+                  let s = poolSlots.first(where: {
+                      compatible(w, $0) && framesMatch(saved[$0], frame)
+                  }) else { continue }
+            claim(w, s)
+        }
+
+        // Globally closest remaining pairs.
+        while !poolSlots.isEmpty {
+            var best: (w: Int, s: Int, score: Double)?
+            for w in poolWindows {
                 guard let frame = current[w] else { continue }
-                for t in freeTargets {
-                    let score = placementDistance(frame, saved[t])
-                    if best == nil || score < best!.score { best = (w, t, score) }
+                for s in poolSlots where compatible(w, s) {
+                    let score = placementDistance(frame, saved[s])
+                    if best == nil || score < best!.score { best = (w, s, score) }
                 }
             }
             guard let match = best else { break }
-            result[match.w] = saved[match.t]
-            freeTargets.removeAll { $0 == match.t }
-            freeWindows.removeAll { $0 == match.w }
+            claim(match.w, match.s)
         }
 
-        // Pass 3: unreadable windows soak up leftover frames in order.
-        for w in freeWindows where !freeTargets.isEmpty {
-            result[w] = saved[freeTargets.removeFirst()]
+        // Unreadable windows soak up leftover slots.
+        for w in poolWindows where result[w] == nil {
+            guard let s = poolSlots.first(where: { compatible(w, $0) }) else { continue }
+            claim(w, s)
         }
-        return result
+    }
+
+    /// Identity key of a window title: the last " - "-separated token, where
+    /// browsers append the profile name (e.g. "Tab - Comet - Saqib Kamran" →
+    /// "Saqib Kamran"). Titles without that structure have no key.
+    private static func titleKey(_ title: String?) -> String? {
+        guard let title else { return nil }
+        let parts = title.components(separatedBy: " - ")
+        guard parts.count >= 2, let last = parts.last else { return nil }
+        let key = last.trimmingCharacters(in: .whitespaces)
+        return key.isEmpty ? nil : key
     }
 
     /// How far apart two frames are for assignment purposes: center distance

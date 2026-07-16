@@ -34,6 +34,14 @@ enum AccessibilityService {
         }
     }
 
+    static func title(of window: AXUIElement) -> String? {
+        var value: CFTypeRef?
+        guard AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &value) == .success
+        else { return nil }
+        let title = value as? String
+        return title?.isEmpty == true ? nil : title
+    }
+
     static func frame(of window: AXUIElement) -> WindowFrame? {
         var posValue: CFTypeRef?
         var sizeValue: CFTypeRef?

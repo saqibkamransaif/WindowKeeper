@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.5.0] — 2026-07-15
+
+### Added
+- **Title-aware window matching.** Captures now store each window's title, and
+  restores match saved frames to live windows by the title's trailing " - "
+  token first — which is where browsers put the profile name (e.g.
+  "Perplexity - Comet - Saqib Kamran" → "Saqib Kamran"). A specific browser
+  profile can therefore own a specific spot: it returns there no matter where
+  it was dragged, while other profile windows keep their own frames or, if
+  they were never captured, are left alone. A titled slot never grabs a window
+  that clearly belongs to a different identity; windows and slots without a
+  recognizable title fall back to plain proximity matching, so apps with
+  volatile titles behave exactly as in 1.4.0. Older preset/frame files (no
+  titles) load unchanged.
+
 ## [1.4.0] — 2026-07-15
 
 ### Changed

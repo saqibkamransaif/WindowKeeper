@@ -98,18 +98,44 @@ final class WindowManager {
             }
             return
         }
-        let displays = DisplayInfo.current()
         let targets: [WindowFrame?]
         switch rule.mode {
         case .remember:
-            let saved = rememberedFrames[rule.bundleID]?
-                .compactMap { LayoutEngine.resolve(saved: $0, displays: displays) } ?? []
-            let current = windows.map { AccessibilityService.frame(of: $0) }
-            targets = LayoutEngine.assignTargets(current: current, saved: saved)
+            targets = assignedTargets(for: windows,
+                                      savedFrames: rememberedFrames[rule.bundleID] ?? [],
+                                      displays: DisplayInfo.current())
         case .zone(let id):
             targets = Array(repeating: resolveZone(id: id), count: windows.count)
         }
         place(windows: windows, targets: targets, bundleID: rule.bundleID)
+    }
+
+    /// Snapshot an app's windows as SavedFrames, including titles so restores
+    /// can tell look-alike windows (browser profiles) apart.
+    private func savedFrames(of pid: pid_t, displays: [DisplayInfo]) -> [SavedFrame] {
+        AccessibilityService.windows(pid: pid).compactMap { window in
+            guard let frame = AccessibilityService.frame(of: window) else { return nil }
+            return LayoutEngine.makeSaved(from: frame, displays: displays,
+                                          title: AccessibilityService.title(of: window))
+        }
+    }
+
+    /// Resolve saved frames against the current displays and match them to
+    /// live windows by identity (title key) and proximity.
+    private func assignedTargets(for windows: [AXUIElement],
+                                 savedFrames: [SavedFrame],
+                                 displays: [DisplayInfo]) -> [WindowFrame?] {
+        let resolved: [(frame: WindowFrame, title: String?)] = savedFrames.compactMap {
+            saved -> (frame: WindowFrame, title: String?)? in
+            guard let frame = LayoutEngine.resolve(saved: saved, displays: displays)
+            else { return nil }
+            return (frame, saved.title)
+        }
+        return LayoutEngine.assignTargets(
+            current: windows.map { AccessibilityService.frame(of: $0) },
+            saved: resolved.map(\.frame),
+            currentTitles: windows.map { AccessibilityService.title(of: $0) },
+            savedTitles: resolved.map(\.title))
     }
 
     /// Set frames on windows with verification and honest logging.
@@ -150,9 +176,7 @@ final class WindowManager {
 
     private func captureFrames(of app: NSRunningApplication, bundleID: String) {
         let displays = DisplayInfo.current()
-        let frames = AccessibilityService.windows(pid: app.processIdentifier)
-            .compactMap { AccessibilityService.frame(of: $0) }
-            .map { LayoutEngine.makeSaved(from: $0, displays: displays) }
+        let frames = savedFrames(of: app.processIdentifier, displays: displays)
         guard !frames.isEmpty else { return }
         rememberedFrames[bundleID] = frames
         try? store.save(frames: rememberedFrames)
@@ -206,9 +230,7 @@ final class WindowManager {
             guard app.activationPolicy == .regular,
                   let bundleID = app.bundleIdentifier,
                   bundleID != Bundle.main.bundleIdentifier else { continue }
-            let frames = AccessibilityService.windows(pid: app.processIdentifier)
-                .compactMap { AccessibilityService.frame(of: $0) }
-                .map { LayoutEngine.makeSaved(from: $0, displays: displays) }
+            let frames = savedFrames(of: app.processIdentifier, displays: displays)
             guard !frames.isEmpty else { continue }
             snapshot[bundleID] = frames
             if !config.rules.contains(where: { $0.bundleID == bundleID }) {
@@ -329,12 +351,9 @@ final class WindowManager {
                 toReopen.append(app)
                 continue
             }
-            let resolved = savedFrames.compactMap {
-                LayoutEngine.resolve(saved: $0, displays: displays)
-            }
-            guard !resolved.isEmpty else { continue }
-            let current = windows.map { AccessibilityService.frame(of: $0) }
-            let targets = LayoutEngine.assignTargets(current: current, saved: resolved)
+            let targets = assignedTargets(for: windows, savedFrames: savedFrames,
+                                          displays: displays)
+            guard targets.contains(where: { $0 != nil }) else { continue }
             place(windows: windows, targets: targets, bundleID: bundleID)
             appliedApps += 1
         }
