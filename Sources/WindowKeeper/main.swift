@@ -1,7 +1,7 @@
 import AppKit
 import WindowKeeperCore
 
-let version = "1.6.0"
+let version = "1.6.1"
 let args = CommandLine.arguments.dropFirst()
 
 if args.contains("--version") {

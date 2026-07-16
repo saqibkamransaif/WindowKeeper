@@ -1,8 +1,13 @@
 import XCTest
 @testable import WindowKeeperCore
 
-/// Updating a preset must not silently drop apps whose windows the capture
-/// can't see (another Space, minimized, hidden) while the app is running.
+/// Updating a preset must never silently drop an app. The capture only sees
+/// windows on the current Space, and apps that aren't running have no windows
+/// at all — both used to fall out of the preset on "Update from current
+/// layout", and a later restore then "ignored" them (this is exactly how
+/// ChatGPT and Perplexity vanished from a daily-driver preset). An update
+/// refreshes what it can see and keeps the rest; removing an app is an
+/// explicit act (save a fresh preset), not a side effect.
 final class PresetMergeTests: XCTestCase {
 
     private func frame(_ x: Double) -> SavedFrame {
@@ -13,8 +18,7 @@ final class PresetMergeTests: XCTestCase {
         let existing = ["com.a": [frame(10)]]
         let captured = ["com.a": [frame(99)]]
         let result = LayoutEngine.mergePresetFrames(existing: existing,
-                                                    captured: captured,
-                                                    running: ["com.a"])
+                                                    captured: captured)
         XCTAssertEqual(result.frames["com.a"], [frame(99)])
         XCTAssertTrue(result.kept.isEmpty)
     }
@@ -25,30 +29,36 @@ final class PresetMergeTests: XCTestCase {
         let existing = ["com.a": [frame(10)], "com.hidden": [frame(20)]]
         let captured = ["com.a": [frame(11)]]
         let result = LayoutEngine.mergePresetFrames(existing: existing,
-                                                    captured: captured,
-                                                    running: ["com.a", "com.hidden"])
+                                                    captured: captured)
         XCTAssertEqual(result.frames["com.hidden"], [frame(20)])
         XCTAssertEqual(result.kept, ["com.hidden"])
     }
 
-    func testQuitAppMissingFromCaptureIsDropped() {
-        // App is no longer running: the user closed it, so an explicit
-        // "update from current layout" removes it from the preset.
+    func testQuitAppMissingFromCaptureIsKept() {
+        // App isn't running at update time. It is still part of the layout —
+        // the next restore must launch and place it, so it stays.
         let existing = ["com.a": [frame(10)], "com.quit": [frame(20)]]
         let captured = ["com.a": [frame(11)]]
         let result = LayoutEngine.mergePresetFrames(existing: existing,
-                                                    captured: captured,
-                                                    running: ["com.a"])
-        XCTAssertNil(result.frames["com.quit"])
-        XCTAssertTrue(result.kept.isEmpty)
+                                                    captured: captured)
+        XCTAssertEqual(result.frames["com.quit"], [frame(20)])
+        XCTAssertEqual(result.kept, ["com.quit"])
     }
 
     func testNewlyCapturedAppIsAdded() {
         let existing = ["com.a": [frame(10)]]
         let captured = ["com.a": [frame(10)], "com.new": [frame(30)]]
         let result = LayoutEngine.mergePresetFrames(existing: existing,
-                                                    captured: captured,
-                                                    running: ["com.a", "com.new"])
+                                                    captured: captured)
         XCTAssertEqual(result.frames["com.new"], [frame(30)])
+    }
+
+    func testKeptListIsSortedAndCoversEveryPreservedApp() {
+        let existing = ["com.b": [frame(1)], "com.a": [frame(2)], "com.c": [frame(3)]]
+        let captured = ["com.c": [frame(4)]]
+        let result = LayoutEngine.mergePresetFrames(existing: existing,
+                                                    captured: captured)
+        XCTAssertEqual(result.kept, ["com.a", "com.b"])
+        XCTAssertEqual(result.frames.count, 3)
     }
 }
