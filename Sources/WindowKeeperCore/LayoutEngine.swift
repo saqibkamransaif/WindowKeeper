@@ -147,23 +147,61 @@ public enum LayoutEngine {
         return (merged, kept.sorted())
     }
 
-    /// Target frames for an app's windows given its rule.
-    /// - remember: saved frames, applied by window order (nil when none saved).
-    /// - zone: the zone frame repeated for every window.
-    public static func targetFrames(rule: AppRule,
-                                    windowCount: Int,
-                                    remembered: [WindowFrame]?,
-                                    zoneResolver: (String) -> WindowFrame?) -> [WindowFrame?] {
-        guard windowCount > 0 else { return [] }
-        switch rule.mode {
-        case .remember:
-            guard let saved = remembered, !saved.isEmpty else {
-                return Array(repeating: nil, count: windowCount)
-            }
-            return (0..<windowCount).map { i in i < saved.count ? saved[i] : saved.last }
-        case .zone(let id):
-            let frame = zoneResolver(id)
-            return Array(repeating: frame, count: windowCount)
+    /// Assign saved frames to windows by proximity, not list order. macOS
+    /// reports windows in z-order, so activating a different window (e.g.
+    /// switching browser profiles) reorders the list — order-based matching
+    /// then shuffles every window. Assignment rules:
+    /// 1. A window already sitting on a saved frame keeps it.
+    /// 2. Remaining windows claim the globally closest free frame.
+    /// 3. Windows whose frame can't be read take leftover frames in order.
+    /// Windows beyond the saved count get nil (left where they are).
+    public static func assignTargets(current: [WindowFrame?],
+                                     saved: [WindowFrame]) -> [WindowFrame?] {
+        var result = [WindowFrame?](repeating: nil, count: current.count)
+        var freeTargets = Array(saved.indices)
+        var freeWindows = Array(current.indices)
+
+        // Pass 1: exact (within tolerance) occupants keep their frame so a
+        // nearby moved window can't steal it.
+        for w in freeWindows {
+            guard let frame = current[w],
+                  let t = freeTargets.first(where: { framesMatch(saved[$0], frame) })
+            else { continue }
+            result[w] = saved[t]
+            freeTargets.removeAll { $0 == t }
         }
+        freeWindows.removeAll { result[$0] != nil }
+
+        // Pass 2: repeatedly take the closest remaining (window, frame) pair.
+        while !freeTargets.isEmpty {
+            var best: (w: Int, t: Int, score: Double)?
+            for w in freeWindows {
+                guard let frame = current[w] else { continue }
+                for t in freeTargets {
+                    let score = placementDistance(frame, saved[t])
+                    if best == nil || score < best!.score { best = (w, t, score) }
+                }
+            }
+            guard let match = best else { break }
+            result[match.w] = saved[match.t]
+            freeTargets.removeAll { $0 == match.t }
+            freeWindows.removeAll { $0 == match.w }
+        }
+
+        // Pass 3: unreadable windows soak up leftover frames in order.
+        for w in freeWindows where !freeTargets.isEmpty {
+            result[w] = saved[freeTargets.removeFirst()]
+        }
+        return result
+    }
+
+    /// How far apart two frames are for assignment purposes: center distance
+    /// plus a size-difference penalty, so a same-sized window wins over a
+    /// differently-sized one at equal distance.
+    private static func placementDistance(_ a: WindowFrame, _ b: WindowFrame) -> Double {
+        let dx = (a.x + a.width / 2) - (b.x + b.width / 2)
+        let dy = (a.y + a.height / 2) - (b.y + b.height / 2)
+        return (dx * dx + dy * dy).squareRoot()
+            + abs(a.width - b.width) + abs(a.height - b.height)
     }
 }

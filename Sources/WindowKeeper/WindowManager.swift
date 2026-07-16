@@ -1,8 +1,11 @@
 import AppKit
 import WindowKeeperCore
 
-/// Orchestrates everything: watches app launches, applies rules, and saves
-/// user-arranged frames for "remember" apps.
+/// Orchestrates captures and restores. Deliberately passive: windows are
+/// touched ONLY on an explicit user action (save/update/apply a preset,
+/// capture, or changing an app's placement mode). The single exception is
+/// finishing an explicit restore — apps the preset just launched get their
+/// windows placed once they appear.
 final class WindowManager {
     static let commandNotification = "com.saqibkamran.windowkeeper.command"
 
@@ -11,12 +14,11 @@ final class WindowManager {
     private(set) var rememberedFrames: [String: [SavedFrame]]
     private(set) var presets: [LayoutPreset]
 
-    private var observers: [pid_t: AXObserver] = [:]
-    /// Bundle IDs whose move/resize events we caused ourselves; maps to the
-    /// time until which events are ignored.
-    private var suppressedUntil: [String: Date] = [:]
-    private var saveDebounce: [String: DispatchWorkItem] = [:]
-    private var screenChangeDebounce: DispatchWorkItem?
+    /// Apps launched by an in-flight preset apply, still waiting for their
+    /// first window. Entries expire so a later manual launch of the same app
+    /// never triggers placement on its own.
+    private var pendingPlacements: [String: Date] = [:]
+    private static let pendingPlacementWindow: TimeInterval = 60
 
     init(store: LayoutStore) {
         self.store = store
@@ -28,54 +30,29 @@ final class WindowManager {
     // MARK: - Lifecycle
 
     func start() {
-        let center = NSWorkspace.shared.notificationCenter
-        center.addObserver(self, selector: #selector(appDidLaunch(_:)),
-                           name: NSWorkspace.didLaunchApplicationNotification, object: nil)
-        center.addObserver(self, selector: #selector(appDidTerminate(_:)),
-                           name: NSWorkspace.didTerminateApplicationNotification, object: nil)
-        NotificationCenter.default.addObserver(
-            self, selector: #selector(screenParametersChanged),
-            name: NSApplication.didChangeScreenParametersNotification, object: nil)
+        // Only two triggers exist: explicit commands, and launch events used
+        // solely to finish an explicit preset apply (see pendingPlacements).
+        NSWorkspace.shared.notificationCenter.addObserver(
+            self, selector: #selector(appDidLaunch(_:)),
+            name: NSWorkspace.didLaunchApplicationNotification, object: nil)
         DistributedNotificationCenter.default().addObserver(
             self, selector: #selector(handleCommand(_:)),
             name: Notification.Name(Self.commandNotification), object: nil)
-        for app in NSWorkspace.shared.runningApplications where managedRule(for: app) != nil {
-            attach(to: app, applyPlacement: false)
-        }
-        Log.shared.info("WindowManager started — \(config.rules.count) rule(s), \(presets.count) preset(s)")
+        Log.shared.info("WindowManager started — \(config.rules.count) rule(s), "
+            + "\(presets.count) preset(s), passive mode")
     }
 
+    /// An app we launched as part of a preset apply is up — place its windows.
+    /// Launches the user performs themselves are ignored.
     @objc private func appDidLaunch(_ note: Notification) {
         guard config.enabled,
               let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication,
-              managedRule(for: app) != nil else { return }
-        Log.shared.info("Launch detected: \(app.bundleIdentifier ?? "?")")
-        attach(to: app, applyPlacement: true)
-    }
-
-    @objc private func appDidTerminate(_ note: Notification) {
-        guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
-        if let observer = observers.removeValue(forKey: app.processIdentifier) {
-            AccessibilityService.removeObserver(observer)
-        }
-    }
-
-    /// Display arrangement changed (monitor plugged/unplugged, resolution
-    /// switch). macOS scrambles windows in this moment; once things settle,
-    /// put every managed app back where it belongs on the new arrangement.
-    @objc private func screenParametersChanged() {
-        guard config.enabled else { return }
-        screenChangeDebounce?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            Log.shared.info("Display arrangement changed — re-applying layouts")
-            for app in NSWorkspace.shared.runningApplications
-            where self.managedRule(for: app) != nil {
-                self.applyRule(to: app, attempt: 0)
-            }
-        }
-        screenChangeDebounce = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0, execute: work)
+              let bundleID = app.bundleIdentifier,
+              let requested = pendingPlacements.removeValue(forKey: bundleID),
+              Date().timeIntervalSince(requested) < Self.pendingPlacementWindow
+        else { return }
+        Log.shared.info("Preset-launched app is up: \(bundleID)")
+        applyRule(to: app, attempt: 0)
     }
 
     /// Scriptable command channel (also used by `WindowKeeper --do "…"`).
@@ -103,50 +80,6 @@ final class WindowManager {
         return config.rule(for: bundleID)
     }
 
-    // MARK: - Attach & observe
-
-    private func attach(to app: NSRunningApplication, applyPlacement apply: Bool) {
-        let pid = app.processIdentifier
-        guard observers[pid] == nil else {
-            if apply { applyRule(to: app, attempt: 0) }
-            return
-        }
-        let refcon = Unmanaged.passUnretained(self).toOpaque()
-        // C callback: no captures allowed, so the pid is read back from the
-        // element and the manager comes through refcon.
-        let callback: AXObserverCallback = { _, element, notification, refcon in
-            guard let refcon else { return }
-            var eventPid: pid_t = 0
-            guard AXUIElementGetPid(element, &eventPid) == .success else { return }
-            let manager = Unmanaged<WindowManager>.fromOpaque(refcon).takeUnretainedValue()
-            manager.handleAXEvent(notification as String, pid: eventPid)
-        }
-        if let observer = AccessibilityService.makeObserver(pid: pid, callback: callback,
-                                                            refcon: refcon) {
-            observers[pid] = observer
-        }
-        if apply { applyRule(to: app, attempt: 0) }
-    }
-
-    private func handleAXEvent(_ notification: String, pid: pid_t) {
-        guard config.enabled,
-              let app = NSRunningApplication(processIdentifier: pid),
-              let rule = managedRule(for: app) else { return }
-        switch notification {
-        case kAXWindowCreatedNotification:
-            // New window: place it after a beat so the app finishes setup.
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
-                self?.applyRule(to: app, attempt: 0)
-            }
-        case kAXWindowMovedNotification, kAXWindowResizedNotification:
-            guard case .remember = rule.mode else { return }
-            if let until = suppressedUntil[rule.bundleID], until > Date() { return }
-            scheduleFrameCapture(for: app, rule: rule)
-        default:
-            break
-        }
-    }
-
     // MARK: - Placement
 
     /// Apply a rule to an app's windows, retrying while the app is still
@@ -166,20 +99,21 @@ final class WindowManager {
             return
         }
         let displays = DisplayInfo.current()
-        let remembered = rememberedFrames[rule.bundleID]?
-            .compactMap { LayoutEngine.resolve(saved: $0, displays: displays) }
-        let targets = LayoutEngine.targetFrames(
-            rule: rule,
-            windowCount: windows.count,
-            remembered: remembered,
-            zoneResolver: { [weak self] id in self?.resolveZone(id: id) }
-        )
+        let targets: [WindowFrame?]
+        switch rule.mode {
+        case .remember:
+            let saved = rememberedFrames[rule.bundleID]?
+                .compactMap { LayoutEngine.resolve(saved: $0, displays: displays) } ?? []
+            let current = windows.map { AccessibilityService.frame(of: $0) }
+            targets = LayoutEngine.assignTargets(current: current, saved: saved)
+        case .zone(let id):
+            targets = Array(repeating: resolveZone(id: id), count: windows.count)
+        }
         place(windows: windows, targets: targets, bundleID: rule.bundleID)
     }
 
-    /// Set frames on windows with verification, suppression, and honest logging.
+    /// Set frames on windows with verification and honest logging.
     private func place(windows: [AXUIElement], targets: [WindowFrame?], bundleID: String) {
-        suppress(bundleID: bundleID)
         var placed = 0, adjusted = 0, failed = 0, skipped = 0
         for (window, target) in zip(windows, targets) {
             guard let target else { skipped += 1; continue }
@@ -212,22 +146,7 @@ final class WindowManager {
                                     primaryHeight: primaryHeight)
     }
 
-    /// Ignore our own move/resize events for a moment so applying frames
-    /// doesn't immediately re-save them.
-    private func suppress(bundleID: String, seconds: TimeInterval = 1.5) {
-        suppressedUntil[bundleID] = Date().addingTimeInterval(seconds)
-    }
-
-    // MARK: - Frame capture (remember mode)
-
-    private func scheduleFrameCapture(for app: NSRunningApplication, rule: AppRule) {
-        saveDebounce[rule.bundleID]?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            self?.captureFrames(of: app, bundleID: rule.bundleID)
-        }
-        saveDebounce[rule.bundleID] = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0, execute: work)
-    }
+    // MARK: - Frame capture
 
     private func captureFrames(of app: NSRunningApplication, bundleID: String) {
         let displays = DisplayInfo.current()
@@ -254,13 +173,9 @@ final class WindowManager {
             let rule = AppRule(bundleID: bundleID,
                                displayName: app.localizedName ?? bundleID)
             config.upsert(rule: rule)
-            attach(to: app, applyPlacement: false)
             captureFrames(of: app, bundleID: bundleID)
         } else {
             config.removeRule(bundleID: bundleID)
-            if let observer = observers.removeValue(forKey: app.processIdentifier) {
-                AccessibilityService.removeObserver(observer)
-            }
         }
         try? store.save(config: config)
         Log.shared.info("\(bundleID) managed=\(managed)")
@@ -299,7 +214,6 @@ final class WindowManager {
             if !config.rules.contains(where: { $0.bundleID == bundleID }) {
                 config.upsert(rule: AppRule(bundleID: bundleID,
                                             displayName: app.localizedName ?? bundleID))
-                attach(to: app, applyPlacement: false)
                 autoManaged.append(bundleID)
             }
         }
@@ -382,11 +296,11 @@ final class WindowManager {
     }
 
     /// Apply a preset: place windows of running apps immediately, and LAUNCH
-    /// apps in the preset that aren't running — their windows are placed by
-    /// the launch pipeline (appDidLaunch → attach → applyRule) from the
-    /// remembered frames written below. Deliberately bypasses zone rules: an
-    /// explicit "Apply" wins over standing placement modes. Running apps NOT
-    /// in the preset are left untouched.
+    /// apps in the preset that aren't running — their windows are placed once
+    /// they appear (appDidLaunch → applyRule, gated by pendingPlacements) from
+    /// the remembered frames written below. Deliberately bypasses zone rules:
+    /// an explicit "Apply" wins over standing placement modes. Running apps
+    /// NOT in the preset are left untouched.
     func applyPreset(id: String) {
         guard let preset = presets.first(where: { $0.id == id }) else { return }
         for (bundleID, frames) in preset.frames {
@@ -398,6 +312,7 @@ final class WindowManager {
         let displays = DisplayInfo.current()
         var appliedApps = 0
         var toLaunch: [String] = []
+        var toReopen: [NSRunningApplication] = []
         for (bundleID, savedFrames) in preset.frames {
             let running = NSWorkspace.shared.runningApplications
                 .filter { $0.bundleIdentifier == bundleID }
@@ -406,14 +321,20 @@ final class WindowManager {
                 continue
             }
             let windows = AccessibilityService.windows(pid: app.processIdentifier)
-            guard !windows.isEmpty else { toLaunch.append(bundleID); continue }
+            guard !windows.isEmpty else {
+                // Running but windowless (window on another Space just closed,
+                // or app parked in the background): re-open and poll until a
+                // window shows up — no launch notification will fire for it.
+                toLaunch.append(bundleID)
+                toReopen.append(app)
+                continue
+            }
             let resolved = savedFrames.compactMap {
                 LayoutEngine.resolve(saved: $0, displays: displays)
             }
             guard !resolved.isEmpty else { continue }
-            let targets: [WindowFrame?] = (0..<windows.count).map { i in
-                i < resolved.count ? resolved[i] : resolved.last
-            }
+            let current = windows.map { AccessibilityService.frame(of: $0) }
+            let targets = LayoutEngine.assignTargets(current: current, saved: resolved)
             place(windows: windows, targets: targets, bundleID: bundleID)
             appliedApps += 1
         }
@@ -423,9 +344,13 @@ final class WindowManager {
         for bundleID in toLaunch {
             if launchApp(bundleID: bundleID) {
                 launched.append(bundleID)
+                pendingPlacements[bundleID] = Date()
             } else {
                 missing.append(bundleID)
             }
+        }
+        for app in toReopen {
+            applyRule(to: app, attempt: 0)
         }
 
         var summary = "Preset applied: \(preset.name) — \(appliedApps) app(s) placed"
@@ -452,7 +377,6 @@ final class WindowManager {
                     .deletingPathExtension().lastPathComponent
                 ?? bundleID
             config.upsert(rule: AppRule(bundleID: bundleID, displayName: name))
-            if let app { attach(to: app, applyPlacement: false) }
             added = true
         }
         if added { try? store.save(config: config) }
@@ -460,7 +384,7 @@ final class WindowManager {
 
     /// Launch (or re-open, if running without windows) an app by bundle ID.
     /// Returns false when the app can't be found on disk. Placement happens
-    /// asynchronously via the AX window-created / launch notifications.
+    /// asynchronously once the app's windows appear.
     private func launchApp(bundleID: String) -> Bool {
         guard let url = NSWorkspace.shared
             .urlForApplication(withBundleIdentifier: bundleID) else {

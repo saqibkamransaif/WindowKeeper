@@ -7,19 +7,23 @@ the exact size and place you left it, on every screen.
 
 ## Features
 
-- **Remember & restore** — managed apps reopen at their last size/position,
-  saved automatically whenever you move or resize a window.
-- **Zones** — assign an app to a screen region (halves, thirds, two-thirds,
-  center, maximize — the layouts that make an ultra-wide useful). Every new
-  window of that app snaps there automatically.
 - **Layout presets** — capture every open app's exact window arrangement across
   all displays as a named preset. Applying it is a one-click restore: apps that
   aren't running are launched, and every window goes back to its saved place.
 - **Magic button** — the preset you choose sits at the top of the menu as a
   bold "Restore …" item. Click the menu-bar icon, click the button, done.
-- **Opt-in per app** — day-to-day, only apps you mark as *Managed* are touched
-  (apps captured into a preset become managed automatically).
-- **Multi-display aware** — zones can target any connected display.
+- **Passive by design** — windows move ONLY when you ask (save, apply, snap to
+  a zone). WindowKeeper never repositions anything on its own: no snapping
+  when windows open, no re-capture when you drag something, no reshuffling
+  when you switch between look-alike windows such as browser profiles.
+- **Smart window matching** — multi-window apps (browsers with several
+  profiles, editors with many documents) are restored by matching each window
+  to its nearest saved frame, so restoring never swaps windows around; extra
+  windows that were never captured are left where they are.
+- **Zones** — snap an app to a screen region on demand (halves, thirds,
+  two-thirds, center, maximize — the layouts that make an ultra-wide useful).
+- **Multi-display aware** — frames are saved relative to their display and
+  zones can target any connected display.
 
 ## Install
 
@@ -68,8 +72,8 @@ Everything lives in the menu-bar icon:
 | Presets → *name* → Apply / Update / Delete | Apply launches missing apps and restores every window |
 | Presets → *name* → Use as Magic Button | Make this preset the one-click restore at the top |
 | Manage Apps → *app* → Managed | Opt an app in or out |
-| Manage Apps → *app* → Remember Last Position | Restore where you last put it (default) |
-| Manage Apps → *app* → Snap to Zone → *zone* | Pin the app to a screen region |
+| Manage Apps → *app* → Remember Last Position | Restores use its captured frames (default) |
+| Manage Apps → *app* → Snap to Zone → *zone* | Snap the app to a screen region now |
 
 Config lives in `~/Library/Application Support/WindowKeeper/` as three JSON
 files (`config.json`, `frames.json`, `presets.json`); logs in `logs/` next to
@@ -80,10 +84,12 @@ them.
 - **Full-screen windows and windows on other Spaces can't be captured.** The
   Accessibility API only exposes windows on the currently visible Spaces —
   bring windows to a normal desktop before saving a preset.
-- **Rebuilding the app resets its Accessibility grant.** The bundle is ad-hoc
-  signed, so after `make install` macOS treats it as a new binary: remove
-  WindowKeeper from System Settings → Privacy & Security → Accessibility and
-  re-add it, then relaunch.
+- **Changing the code signature resets the Accessibility grant.** The build
+  signs with your first Apple Development / Developer ID identity when one
+  exists (stable across rebuilds) and falls back to ad-hoc signing otherwise —
+  ad-hoc builds need the grant re-added after every `make install`. After any
+  re-grant, relaunch WindowKeeper; some apps (Electron ones especially) keep
+  refusing a client that started before the grant.
 - **Window contents aren't restored** — WindowKeeper restores which apps are
   open and where their windows sit; tabs/documents are each app's own
   session-restore behavior.

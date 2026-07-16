@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.4.0] — 2026-07-15
+
+### Changed
+- **WindowKeeper is now fully passive: windows move only on explicit actions.**
+  Automatic behaviors are gone — no more snapping a window when it opens, no
+  auto-recapture when you drag or resize, no bulk re-apply when the display
+  arrangement changes. Frames are captured when you save/update a preset (or
+  Capture Current Layout) and applied when you restore one or snap an app to a
+  zone. The only background trigger left is finishing an explicit restore:
+  apps a preset just launched get their windows placed once they appear
+  (ignored for launches you perform yourself).
+- **Restores match windows to saved frames by proximity, not list order.**
+  macOS reports windows front-to-back, so with several look-alike windows
+  (e.g. multiple browser profiles) merely focusing a different window used to
+  remap every saved frame and shuffle the whole set. Windows already sitting
+  on a saved frame now keep it, moved windows return to their nearest saved
+  frame, and extra windows with no saved slot are left where they are
+  (previously they were stacked onto the last saved frame).
+
+### Removed
+- Per-app AX observers (window created/moved/resized) — no longer needed in
+  the passive model.
+
 ## [1.3.1] — 2026-07-15
 
 ### Fixed
