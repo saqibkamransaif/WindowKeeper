@@ -66,4 +66,76 @@ final class FrameAssignmentTests: XCTestCase {
     func testNoWindowsProducesNoTargets() {
         XCTAssertTrue(LayoutEngine.assignTargets(current: [], saved: [left]).isEmpty)
     }
+
+    // MARK: - Title-aware matching (browser profiles, documents)
+
+    func testTitledSlotGoesToItsWindowEvenWhenAnotherIsCloser() {
+        // The personal profile wandered to the far side; a different profile
+        // now sits nearest the saved slot. The slot's title must win.
+        let farAway = WindowFrame(x: 2000, y: 900, width: 900, height: 700)
+        let nearSlot = WindowFrame(x: 30, y: 20, width: 800, height: 600)
+        let targets = LayoutEngine.assignTargets(
+            current: [nearSlot, farAway],
+            saved: [left],
+            currentTitles: ["Some Tab - Comet - Sarah",
+                            "Perplexity - Comet - Saqib Kamran"],
+            savedTitles: ["Comet - Saqib Kamran"])
+        XCTAssertEqual(targets, [nil, left])
+    }
+
+    func testTitleKeyIsLastDashSeparatedToken() {
+        // Tab part changes between capture and restore; only the trailing
+        // profile token has to agree (both "-" and "–" separators appear).
+        let targets = LayoutEngine.assignTargets(
+            current: [bottom],
+            saved: [left],
+            currentTitles: ["News – Today - Comet - Saqib Kamran"],
+            savedTitles: ["Old Tab - Comet - Saqib Kamran"])
+        XCTAssertEqual(targets, [left])
+    }
+
+    func testUnmatchedTitlesFallBackToProximity() {
+        let targets = LayoutEngine.assignTargets(
+            current: [left, right],
+            saved: [left, right],
+            currentTitles: ["Doc A", "Doc B"],
+            savedTitles: ["Doc C", "Doc D"])
+        XCTAssertEqual(targets, [left, right])
+    }
+
+    func testDuplicateTitleKeysMatchWithinGroupByProximity() {
+        // Two windows of the same profile: match inside the group by
+        // position, and don't leak its slots to other profiles.
+        let movedA = WindowFrame(x: 60, y: 40, width: 800, height: 600)
+        let targets = LayoutEngine.assignTargets(
+            current: [movedA, right, bottom],
+            saved: [left, right, bottom],
+            currentTitles: ["A - Comet - Work", "B - Comet - Work",
+                            "C - Comet - Personal"],
+            savedTitles: ["X - Comet - Work", "Y - Comet - Work",
+                          "Z - Comet - Personal"])
+        XCTAssertEqual(targets, [left, right, bottom])
+    }
+
+    func testTitledSlotNeverGrabsAWindowWithADifferentKnownTitle() {
+        // The titled window is gone (profile closed). A window that clearly
+        // belongs to ANOTHER profile must not be yanked into the slot.
+        let targets = LayoutEngine.assignTargets(
+            current: [bottom],
+            saved: [left],
+            currentTitles: ["Tab - Comet - Sarah"],
+            savedTitles: ["Tab - Comet - Saqib Kamran"])
+        XCTAssertEqual(targets, [nil])
+    }
+
+    func testUntitledWindowMayFillATitledSlot() {
+        // Unknown identity (no title readable): behave like before titles
+        // existed, so title drift can't strand a slot forever.
+        let targets = LayoutEngine.assignTargets(
+            current: [bottom],
+            saved: [left],
+            currentTitles: [nil],
+            savedTitles: ["Tab - Comet - Saqib Kamran"])
+        XCTAssertEqual(targets, [left])
+    }
 }

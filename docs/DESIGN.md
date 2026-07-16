@@ -46,12 +46,15 @@ WindowKeeper      (executable — AppKit menu-bar app)
 - **Zones are fractional** (0–1 of a display's visible frame) so the same zone definition
   works on any monitor, ultra-wide included. Built-in zones include halves, thirds and
   two-thirds — the useful set for a 21:9/32:9 screen.
-- **Proximity window matching**: macOS lists an app's windows in z-order, so
-  order-based frame assignment shuffles multi-window apps whenever a different
-  window is focused. `LayoutEngine.assignTargets` matches windows to saved
-  frames instead: in-place windows keep their frame, the rest claim the
-  closest free frame (center distance + size penalty), and windows beyond the
-  saved count are left untouched.
+- **Identity + proximity window matching**: macOS lists an app's windows in
+  z-order, so order-based frame assignment shuffles multi-window apps whenever
+  a different window is focused. `LayoutEngine.assignTargets` matches windows
+  to saved frames instead. Identity first: `SavedFrame` stores the capture-time
+  window title, and the trailing " - " token (browsers put the profile name
+  there) pairs each slot with its window wherever it is; known-different
+  identities never cross. Then proximity: in-place windows keep their frame,
+  the rest claim the closest free frame (center distance + size penalty), and
+  windows beyond the saved count are left untouched.
 - **Preset-launch placement is the only background trigger**: `applyPreset`
   records launched bundle IDs in `pendingPlacements` (60 s expiry); the
   `didLaunchApplication` handler places windows only for those. Apps create

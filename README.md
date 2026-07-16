@@ -18,8 +18,10 @@ the exact size and place you left it, on every screen.
   when you switch between look-alike windows such as browser profiles.
 - **Smart window matching** — multi-window apps (browsers with several
   profiles, editors with many documents) are restored by matching each window
-  to its nearest saved frame, so restoring never swaps windows around; extra
-  windows that were never captured are left where they are.
+  to its saved frame by identity and proximity: window titles carry the
+  browser profile name, so each profile returns to its own spot; windows
+  without a title match go to their nearest saved frame; extra windows that
+  were never captured are left where they are.
 - **Zones** — snap an app to a screen region on demand (halves, thirds,
   two-thirds, center, maximize — the layouts that make an ultra-wide useful).
 - **Multi-display aware** — frames are saved relative to their display and

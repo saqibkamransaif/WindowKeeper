@@ -60,18 +60,23 @@ public struct SavedFrame: Codable, Equatable {
     public var relY: Double
     public var width: Double
     public var height: Double
+    /// Window title at capture time. Restores use its trailing " - " token
+    /// (where browsers put the profile name) to give each look-alike window
+    /// its own frame back. Optional: older files decode with nil.
+    public var title: String?
 
     public init(displayUUID: String?, relX: Double, relY: Double,
-                width: Double, height: Double) {
+                width: Double, height: Double, title: String? = nil) {
         self.displayUUID = displayUUID
         self.relX = relX
         self.relY = relY
         self.width = width
         self.height = height
+        self.title = title
     }
 
     private enum CodingKeys: String, CodingKey {
-        case displayUUID, relX, relY, width, height
+        case displayUUID, relX, relY, width, height, title
         case x, y // legacy absolute format
     }
 
@@ -79,6 +84,7 @@ public struct SavedFrame: Codable, Equatable {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         width = try c.decode(Double.self, forKey: .width)
         height = try c.decode(Double.self, forKey: .height)
+        title = try c.decodeIfPresent(String.self, forKey: .title)
         if let x = try c.decodeIfPresent(Double.self, forKey: .x),
            let y = try c.decodeIfPresent(Double.self, forKey: .y) {
             // Legacy: absolute AX coordinates, display unknown.
@@ -99,6 +105,7 @@ public struct SavedFrame: Codable, Equatable {
         try c.encode(relY, forKey: .relY)
         try c.encode(width, forKey: .width)
         try c.encode(height, forKey: .height)
+        try c.encodeIfPresent(title, forKey: .title)
     }
 }
 
