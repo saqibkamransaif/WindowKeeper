@@ -1,5 +1,27 @@
 # Changelog
 
+## [1.6.0] — 2026-07-16
+
+### Added
+- **Restores now reconcile until every saved window is open and in place.**
+  Applying a preset was a single fire-and-forget pass that relied on macOS
+  launch notifications; after a reboot this routinely left holes — an app
+  whose notification never arrived was never placed, a second Terminal window
+  was never recreated, and windows placed while displays were still waking up
+  ended a menu-bar-height off once the arrangement settled. A reconciliation
+  loop now re-verifies the whole preset every 3 s for up to 2 minutes after
+  an apply: apps that still aren't running are relaunched once, drifted
+  windows are re-placed against the *current* display geometry, and apps with
+  fewer windows than the preset saved are asked for more via their own
+  "New Window" menu item (pressed through Accessibility — no fake keystrokes,
+  so it can never hit the wrong app). Window creation waits for the app's
+  window count to hold steady across two passes so slow starters (Slack,
+  Electron apps) restoring their own windows are never handed duplicates.
+  Apps verified in place are left alone for the rest of the restore — unless
+  the display arrangement changes, which re-verifies everything. The loop
+  ends with an honest log line: everything placed, or exactly what is still
+  short and why.
+
 ## [1.5.0] — 2026-07-15
 
 ### Added
