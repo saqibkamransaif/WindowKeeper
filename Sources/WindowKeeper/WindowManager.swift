@@ -326,6 +326,60 @@ final class WindowManager {
         Log.shared.info("Magic button now applies preset id \(id)")
     }
 
+    /// ⌥⌘O — move ONLY the focused window of the frontmost app back to its
+    /// place in the magic preset. Runs the same matching as a full restore so
+    /// look-alike windows (browser profiles) return to their own spot, but
+    /// applies just the one target. Every refusal beeps and logs; no dialogs.
+    func sendFocusedWindowBack() {
+        guard config.enabled else {
+            NSSound.beep()
+            Log.shared.info("Send-back ignored: WindowKeeper is disabled")
+            return
+        }
+        guard let preset = magicPreset else {
+            NSSound.beep()
+            Log.shared.info("Send-back ignored: no magic preset is set")
+            return
+        }
+        guard let app = NSWorkspace.shared.frontmostApplication,
+              let bundleID = app.bundleIdentifier else {
+            NSSound.beep()
+            Log.shared.info("Send-back ignored: no frontmost application")
+            return
+        }
+        let appName = app.localizedName ?? bundleID
+        guard let saved = preset.frames[bundleID], !saved.isEmpty else {
+            NSSound.beep()
+            Log.shared.info("Send-back: no saved place for \(appName) "
+                + "in preset '\(preset.name)'")
+            return
+        }
+        guard let focused = AccessibilityService.focusedWindow(
+            pid: app.processIdentifier) else {
+            NSSound.beep()
+            Log.shared.info("Send-back: \(appName) has no focused window")
+            return
+        }
+        let windows = AccessibilityService.windows(pid: app.processIdentifier)
+        guard let index = windows.firstIndex(where: { CFEqual($0, focused) }) else {
+            NSSound.beep()
+            Log.shared.info("Send-back: focused window of \(appName) is not a "
+                + "standard window")
+            return
+        }
+        let targets = assignedTargets(for: windows, savedFrames: saved,
+                                      displays: DisplayInfo.current())
+        guard let target = targets[index] else {
+            NSSound.beep()
+            Log.shared.info("Send-back: no saved frame matched the focused "
+                + "\(appName) window (preset saved \(saved.count) window(s))")
+            return
+        }
+        Log.shared.info("Send-back: returning focused \(appName) window to its "
+            + "place in '\(preset.name)'")
+        place(windows: [focused], targets: [target], bundleID: bundleID)
+    }
+
     /// Save the current layout as a preset. Returns the captured app names so
     /// the UI can tell the user exactly what's inside the preset.
     @discardableResult
