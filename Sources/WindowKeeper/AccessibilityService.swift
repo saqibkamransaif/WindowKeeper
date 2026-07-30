@@ -34,6 +34,17 @@ enum AccessibilityService {
         }
     }
 
+    /// The window that currently has focus in the given app, or nil if the
+    /// app has none (no windows, or focus is on a non-window element).
+    static func focusedWindow(pid: pid_t) -> AXUIElement? {
+        let app = AXUIElementCreateApplication(pid)
+        var value: CFTypeRef?
+        let result = AXUIElementCopyAttributeValue(
+            app, kAXFocusedWindowAttribute as CFString, &value)
+        guard result == .success, let window = value else { return nil }
+        return (window as! AXUIElement)
+    }
+
     static func title(of window: AXUIElement) -> String? {
         var value: CFTypeRef?
         guard AXUIElementCopyAttributeValue(window, kAXTitleAttribute as CFString, &value) == .success
