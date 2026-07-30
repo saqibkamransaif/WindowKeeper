@@ -4,6 +4,7 @@ import WindowKeeperCore
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var manager: WindowManager!
     private var menuController: StatusMenuController!
+    private var hotkeyService: HotkeyService?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         do {
@@ -25,5 +26,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         manager.start()
+
+        hotkeyService = HotkeyService(keyCode: HotkeyService.keyO,
+                                      modifiers: HotkeyService.optionCommand) {
+            [weak self] in self?.manager.sendFocusedWindowBack()
+        }
+        if hotkeyService == nil {
+            Log.shared.error("⌥⌘O hotkey unavailable — Send Back works only "
+                + "from the menu")
+        }
     }
 }
