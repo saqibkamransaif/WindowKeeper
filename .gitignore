@@ -6,6 +6,10 @@ logs/
 .swiftpm/
 Sources/**/CLAUDE.md
 Tests/**/CLAUDE.md
+docs/**/CLAUDE.md
+
+# Session journals dropped by memory tooling — never published
+.activity/
 
 # Ralph context management
 .ralph/

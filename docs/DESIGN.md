@@ -16,6 +16,9 @@ position you left them. The user wants:
 3. **Zones** — snap an app to a fixed screen region on demand.
 4. **App selection** — management is opt-in per app; apps captured into a
    preset are opted in automatically.
+5. **Send it back** — while working, the user enlarges the focused app's
+   window; one keystroke (⌥⌘O) must return just that window to its preset
+   place without disturbing anything else.
 
 ## Architecture
 
@@ -30,9 +33,10 @@ WindowKeeperCore  (library — pure logic, no AppKit/AX dependency beyond CoreGr
 WindowKeeper      (executable — AppKit menu-bar app)
 ├── main.swift                 arg parsing (--diagnose, --version, --frames, --do) or GUI launch
 ├── AppDelegate.swift          NSStatusItem lifecycle
-├── AccessibilityService.swift AXUIElement wrappers (windows, get/set frame)
+├── AccessibilityService.swift AXUIElement wrappers (windows, focused window, get/set frame)
 ├── WindowManager.swift        orchestration: captures, restores, preset-launch placement
 ├── StatusMenuController.swift menu UI (enable, capture, presets, manage apps, zones)
+├── HotkeyService.swift        Carbon RegisterEventHotKey wrapper (global ⌥⌘O)
 └── Log.swift                  file logger → ~/Library/Application Support/WindowKeeper/logs
 ```
 
@@ -98,6 +102,29 @@ existing preset.
 The **magic button** is a prominent one-click "Restore *preset*" item at the
 top of the status menu. It applies the preset selected via `config.magicPresetID`
 ("Use as Magic Button" per preset), falling back to the most recently saved.
+
+## Send It Back (⌥⌘O) — single-window restore (1.7.0)
+
+The user enlarges the focused app to work in it, then wants it back in its
+organized spot with one keystroke — without firing a full restore. A global
+⌥⌘O (Carbon `RegisterEventHotKey` in `HotkeyService`; no extra permissions,
+the focused app never sees the keystroke) calls
+`WindowManager.sendFocusedWindowBack()`, which is also reachable from a menu
+item under the magic button. Design points:
+
+- **Source of truth is the magic preset**, not a remembered "before" frame —
+  tracking pre-resize positions would require watching every window move,
+  which the passivity rule forbids.
+- **Scope is exactly one window**: the frontmost app's focused window
+  (`kAXFocusedWindowAttribute`). Matching still runs `assignTargets` over all
+  of the app's windows against the preset's saved frames — so a browser
+  profile window returns to *its own* slot — but only the focused window's
+  assigned target is applied.
+- **⌥⌘O, not ⌘O**: a global ⌘O would hijack "Open file" in every app; the
+  extra Option keeps the "O for original position" mnemonic safely.
+- **Refusals are quiet**: disabled, no magic preset, app not in the preset,
+  no focused window, or no matched frame → `NSSound.beep()` plus one log
+  line. Never a dialog.
 
 ## Testing
 
