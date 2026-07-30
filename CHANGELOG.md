@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.7.0] — 2026-07-30
+
+### Added
+- **Send It Back (⌥⌘O).** Working in an app usually means making its window
+  bigger; switching tasks used to mean either dragging it back by hand or
+  firing the full Restore. A global ⌥⌘O ("O for original position") now moves
+  ONLY the focused window of the frontmost app back to its place in the magic
+  preset — the app's other windows and every other app stay exactly where
+  they are. The same action lives in the menu right under the Restore button.
+  Matching reuses the restore logic, so a browser-profile window returns to
+  its own saved spot, not its sibling's. When there's nothing to do — no
+  magic preset, the app isn't in it, or no focused window — WindowKeeper
+  beeps and writes one honest log line instead of showing a dialog. Plain ⌘O
+  was deliberately avoided: it would have hijacked "Open file" in every app.
+
 ## [1.6.1] — 2026-07-16
 
 ### Fixed

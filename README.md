@@ -12,6 +12,8 @@ the exact size and place you left it, on every screen.
   aren't running are launched, and every window goes back to its saved place.
 - **Magic button** — the preset you choose sits at the top of the menu as a
   bold "Restore …" item. Click the menu-bar icon, click the button, done.
+- **Send It Back (⌥⌘O)** — enlarged an app to focus on it? One keystroke puts
+  just that window back to its preset place; nothing else moves.
 - **Passive by design** — windows move ONLY when you ask (save, apply, snap to
   a zone). WindowKeeper never repositions anything on its own: no snapping
   when windows open, no re-capture when you drag something, no reshuffling
