@@ -70,6 +70,7 @@ Everything lives in the menu-bar icon:
 | Menu item | What it does |
 |-----------|--------------|
 | ✨ Restore *preset* (top of menu) | One-click full restore of the magic preset |
+| Send Focused Window Back (⌥⌘O) | Return only the focused window of the app you're using to its preset place — nothing else moves. The shortcut works globally, from any app |
 | Enabled | Master on/off switch |
 | Capture Current Layout | Saves the frames of every open app right now |
 | Presets → Save Current as New Preset… | Snapshot every open app's layout under a name |
@@ -82,6 +83,47 @@ Everything lives in the menu-bar icon:
 Config lives in `~/Library/Application Support/WindowKeeper/` as three JSON
 files (`config.json`, `frames.json`, `presets.json`); logs in `logs/` next to
 them.
+
+WindowKeeper is also scriptable — the binary sends commands to the running app:
+
+```bash
+/Applications/WindowKeeper.app/Contents/MacOS/WindowKeeper --do capture               # capture current layout
+/Applications/WindowKeeper.app/Contents/MacOS/WindowKeeper --do "apply-preset:Work"   # restore preset "Work"
+/Applications/WindowKeeper.app/Contents/MacOS/WindowKeeper --do "save-preset:Work"    # save layout as "Work"
+/Applications/WindowKeeper.app/Contents/MacOS/WindowKeeper --frames com.apple.Safari  # print an app's window frames
+/Applications/WindowKeeper.app/Contents/MacOS/WindowKeeper --diagnose                 # accessibility/config/screen report
+```
+
+## Troubleshooting
+
+- **Nothing moves, ever** → Accessibility access is missing. Run `--diagnose`
+  (see above); if it prints `Accessibility trusted: false`, add WindowKeeper
+  in System Settings → Privacy & Security → Accessibility, then quit and
+  relaunch the app.
+- **⌥⌘O just beeps** → the beep is WindowKeeper telling you it had nothing to
+  do: no preset saved yet, the app you're in isn't part of the magic preset,
+  or the app has no standard window focused. The exact reason is one line in
+  `~/Library/Application Support/WindowKeeper/logs/system.log`.
+- **⌥⌘O does nothing at all (no beep)** → another app owns that global
+  shortcut. WindowKeeper logs `Hotkey registration failed` at launch when
+  that happens; the menu item still works.
+- **Windows restore to the wrong screen after unplugging a monitor** →
+  expected while the display is missing (frames resolve to the main display);
+  they go back once the monitor returns and you apply the preset again.
+- **An app refuses to be moved** → a few apps (some Electron ones) ignore
+  Accessibility clients that started before access was granted. Quit and
+  relaunch WindowKeeper; if it persists, relaunch the stubborn app too.
+
+## Uninstall
+
+```bash
+osascript -e 'tell application "WindowKeeper" to quit'
+rm -rf /Applications/WindowKeeper.app
+rm -rf ~/Library/Application\ Support/WindowKeeper   # config, presets, logs
+```
+
+Also remove it from System Settings → Privacy & Security → Accessibility and
+from Login Items if you added it there.
 
 ## Limitations
 
@@ -108,3 +150,8 @@ make run        # run the debug binary in the foreground
 ```
 
 Architecture and design decisions: [docs/DESIGN.md](docs/DESIGN.md).
+Release history: [CHANGELOG.md](CHANGELOG.md).
+
+## License
+
+[MIT](LICENSE)
