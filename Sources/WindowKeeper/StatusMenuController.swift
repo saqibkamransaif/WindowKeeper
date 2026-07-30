@@ -38,6 +38,7 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
 
         if trusted, let preset = manager.magicPreset {
             menu.addItem(makeMagicButton(for: preset))
+            menu.addItem(makeSendBackItem(for: preset))
             menu.addItem(.separator())
         }
 
@@ -85,6 +86,24 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         item.toolTip = "Launch every app in “\(preset.name)” and put every window "
             + "back in its saved place, on all displays."
         return item
+    }
+
+    /// Single-window restore: sits right under the magic button and shows the
+    /// ⌥⌘O shortcut. The frontmost app is whatever the user was just using —
+    /// clicking the status item doesn't change it.
+    private func makeSendBackItem(for preset: LayoutPreset) -> NSMenuItem {
+        let item = NSMenuItem(title: "Send Focused Window Back",
+                              action: #selector(sendFocusedWindowBack),
+                              keyEquivalent: "o")
+        item.keyEquivalentModifierMask = [.option, .command]
+        item.target = self
+        item.toolTip = "Move only the focused window of the app you're using "
+            + "back to its place in “\(preset.name)”. Everything else stays put."
+        return item
+    }
+
+    @objc private func sendFocusedWindowBack() {
+        manager.sendFocusedWindowBack()
     }
 
     // MARK: - Presets submenu
