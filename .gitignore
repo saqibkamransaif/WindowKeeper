@@ -14,3 +14,6 @@ docs/**/CLAUDE.md
 # Ralph context management
 .ralph/
 .ralphrc
+
+# macOS custom-folder icons ("Icon" + CR) — zero-byte, never belong in git
+Icon?
