@@ -72,9 +72,9 @@ Everything lives in the menu-bar icon:
 | ✨ Restore *preset* (top of menu) | One-click full restore of the magic preset |
 | Send Focused Window Back (⌥⌘O) | Return only the focused window of the app you're using to its preset place — nothing else moves. The shortcut works globally, from any app |
 | Enabled | Master on/off switch |
-| Capture Current Layout | Saves the frames of every open app right now |
+| Remember Positions Only (No Preset) | Remembers where every open app is right now; does not change any preset |
 | Presets → Save Current as New Preset… | Snapshot every open app's layout under a name |
-| Presets → *name* → Apply / Update / Delete | Apply launches missing apps and restores every window |
+| Presets → *name* → Apply / Update / Delete | Apply launches missing apps and restores every window. Update replaces the preset with the apps open right now |
 | Presets → *name* → Use as Magic Button | Make this preset the one-click restore at the top |
 | Manage Apps → *app* → Managed | Opt an app in or out |
 | Manage Apps → *app* → Remember Last Position | Restores use its captured frames (default) |

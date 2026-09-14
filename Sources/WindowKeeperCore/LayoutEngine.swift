@@ -127,24 +127,19 @@ public enum LayoutEngine {
             && abs(a.height - b.height) <= tolerance
     }
 
-    /// Merge a fresh capture into a preset's existing frames. Captured apps
-    /// overwrite their entries; every app the capture missed keeps its
-    /// existing frames — whether its windows are on another Space, minimized,
-    /// hidden, or the app isn't running at all. An update refreshes what it
-    /// can see and never silently shrinks the layout; dropping an app is an
-    /// explicit act (save a fresh preset). `kept` lists the preserved bundle
-    /// IDs so callers can report them.
-    public static func mergePresetFrames(
+    /// Replace a preset's frames with a fresh capture: an update saves exactly
+    /// what is on screen. Apps the capture missed (closed, windowless, on
+    /// another Space, minimized) leave the preset, so a restore never
+    /// relaunches apps the user closed before saving. `removed` lists them,
+    /// sorted, so callers can report the drop. An empty capture (nothing
+    /// visible at all) leaves the preset untouched rather than wiping it.
+    public static func replacePresetFrames(
         existing: [String: [SavedFrame]],
         captured: [String: [SavedFrame]]
-    ) -> (frames: [String: [SavedFrame]], kept: [String]) {
-        var merged = captured
-        var kept: [String] = []
-        for (bundleID, frames) in existing where captured[bundleID] == nil {
-            merged[bundleID] = frames
-            kept.append(bundleID)
-        }
-        return (merged, kept.sorted())
+    ) -> (frames: [String: [SavedFrame]], removed: [String]) {
+        guard !captured.isEmpty else { return (existing, []) }
+        let removed = existing.keys.filter { captured[$0] == nil }.sorted()
+        return (captured, removed)
     }
 
     /// Assign saved frames to windows by identity and proximity, not list

@@ -303,13 +303,6 @@ final class WindowManager {
         return snapshot
     }
 
-    /// Managed apps that are NOT running right now (so capture can't see them).
-    func managedAppsNotRunning() -> [String] {
-        let running = Set(NSWorkspace.shared.runningApplications.compactMap(\.bundleIdentifier))
-        return config.rules.filter { $0.enabled && !running.contains($0.bundleID) }
-            .map(\.displayName)
-    }
-
     // MARK: - Presets
 
     /// The preset behind the one-click magic button: the explicitly chosen
@@ -392,26 +385,31 @@ final class WindowManager {
         return displayNames(for: Array(frames.keys))
     }
 
-    /// Re-snapshot a preset. Apps whose windows the capture can't see right
-    /// now (another Space, minimized, hidden — or the app isn't running) keep
-    /// their existing entry — otherwise updating a preset silently drops
-    /// them, and a later restore "ignores" part of the layout. Removing an
-    /// app from a layout is an explicit act: save a fresh preset.
+    /// Re-snapshot a preset so it holds exactly what is on screen now. Apps
+    /// with no visible windows leave the preset (see
+    /// `LayoutEngine.replacePresetFrames`); an empty capture changes nothing.
+    /// Returns display names of what was captured and what was removed so the
+    /// UI can say both.
     @discardableResult
-    func updatePreset(id: String) -> [String] {
-        guard let i = presets.firstIndex(where: { $0.id == id }) else { return [] }
+    func updatePreset(id: String) -> (captured: [String], removed: [String]) {
+        guard let i = presets.firstIndex(where: { $0.id == id }) else { return ([], []) }
         let captured = captureAllFrames()
-        let result = LayoutEngine.mergePresetFrames(existing: presets[i].frames,
-                                                    captured: captured)
+        guard !captured.isEmpty else {
+            Log.shared.info("Preset not updated: \(presets[i].name) — no open windows captured")
+            return ([], [])
+        }
+        let result = LayoutEngine.replacePresetFrames(existing: presets[i].frames,
+                                                      captured: captured)
         presets[i].frames = result.frames
         try? store.save(presets: presets)
         var message = "Preset updated: \(presets[i].name) (\(result.frames.count) app(s))"
-        if !result.kept.isEmpty {
-            message += "; kept \(result.kept.count) app(s) with no visible windows: "
-                + result.kept.joined(separator: ", ")
+        if !result.removed.isEmpty {
+            message += "; removed \(result.removed.count) app(s) with no open windows: "
+                + result.removed.joined(separator: ", ")
         }
         Log.shared.info(message)
-        return displayNames(for: Array(result.frames.keys))
+        return (displayNames(for: Array(result.frames.keys)),
+                displayNames(for: result.removed))
     }
 
     func deletePreset(id: String) {

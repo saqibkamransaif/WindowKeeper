@@ -1,5 +1,21 @@
 # Changelog
 
+## [1.8.0] — 2026-09-14
+
+### Changed
+- **Update from Current Layout saves exactly what is on screen.** An update
+  used to keep every app the capture missed at its old place, so closing apps
+  and re-saving did nothing: the next Restore relaunched them where they used
+  to be ("it restored the original one"). An update now replaces the preset
+  with the apps that have open windows and drops the rest. If nothing at all
+  is visible, the preset is left unchanged instead of being wiped.
+- **The save summary tells the truth.** "Captured:" lists only apps actually
+  captured, and an update adds "Removed (no open windows):". The old
+  "Not captured (not running)" line listed every managed app that wasn't
+  running, even ones not in the preset, and is gone.
+- **"Capture Current Layout" is now "Remember Positions Only (No Preset)".**
+  It never touched presets, which the old name hid.
+
 ## [1.7.0] — 2026-07-30
 
 ### Added

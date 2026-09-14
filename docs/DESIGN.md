@@ -86,7 +86,7 @@ WindowKeeper      (executable — AppKit menu-bar app)
 
 | Mode | Behavior |
 |------|----------|
-| `remember` | Explicit captures (preset save/update, Capture Current Layout) store the app's frames; explicit restores re-apply them via proximity matching. |
+| `remember` | Explicit captures (preset save/update, Remember Positions Only) store the app's frames; explicit restores re-apply them via proximity matching. |
 | `zone(id)` | Selecting the zone snaps every current window of the app to the zone's rect; preset applies still restore captured frames. |
 
 ## Presets
@@ -96,8 +96,10 @@ regular running app with standard windows (not just managed apps); newly seen
 apps get a Remember-mode rule so they stay managed. *Apply* overwrites
 remembered frames, places windows of running apps, and **launches** preset apps
 that aren't running — the normal launch pipeline then places their windows.
-Running apps not in the preset are untouched. *Update* re-captures into an
-existing preset.
+Running apps not in the preset are untouched. *Update* replaces an existing
+preset's frames with a fresh capture, so it holds exactly the apps with open
+windows; apps without them are dropped and listed in the save summary. An
+empty capture leaves the preset unchanged.
 
 The **magic button** is a prominent one-click "Restore *preset*" item at the
 top of the status menu. It applies the preset selected via `config.magicPresetID`
