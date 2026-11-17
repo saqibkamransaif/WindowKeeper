@@ -308,9 +308,38 @@ final class WindowManager {
     /// The preset behind the one-click magic button: the explicitly chosen
     /// one, else the most recently saved.
     var magicPreset: LayoutPreset? {
-        if let id = config.magicPresetID,
-           let preset = presets.first(where: { $0.id == id }) { return preset }
-        return presets.last
+        PresetCatalog.defaultPreset(in: presets, defaultID: config.magicPresetID)
+    }
+
+    /// "Remember Current Layout" from the top of the menu: re-save the
+    /// default preset from what is on screen. With no preset yet, create
+    /// "My Setup" and make it the default.
+    func rememberCurrentLayoutAsDefault() -> (presetName: String, captured: [String],
+                                               removed: [String]) {
+        if let preset = magicPreset {
+            let result = updatePreset(id: preset.id)
+            return (preset.name, result.captured, result.removed)
+        }
+        let captured = savePreset(named: PresetCatalog.defaultName)
+        if let created = presets.last { setMagicPreset(id: created.id) }
+        return (PresetCatalog.defaultName, captured, [])
+    }
+
+    @discardableResult
+    func renamePreset(id: String, to name: String) -> Bool {
+        guard let renamed = PresetCatalog.renaming(presets, id: id, to: name) else { return false }
+        presets = renamed
+        try? store.save(presets: presets)
+        Log.shared.info("Preset \(id) renamed to \(name)")
+        return true
+    }
+
+    /// Stop managing an app by bundle id. Works for apps that are not
+    /// running, which the old menu could not reach.
+    func removeRule(bundleID: String) {
+        config.removeRule(bundleID: bundleID)
+        try? store.save(config: config)
+        Log.shared.info("\(bundleID) managed=false")
     }
 
     func setMagicPreset(id: String) {
@@ -319,7 +348,7 @@ final class WindowManager {
         Log.shared.info("Magic button now applies preset id \(id)")
     }
 
-    /// ⌥⌘O — move ONLY the focused window of the frontmost app back to its
+    /// ⌥⌘R — move ONLY the focused window of the frontmost app back to its
     /// place in the magic preset. Runs the same matching as a full restore so
     /// look-alike windows (browser profiles) return to their own spot, but
     /// applies just the one target. Every refusal beeps and logs; no dialogs.

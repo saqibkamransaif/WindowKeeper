@@ -5,7 +5,7 @@ import Carbon.HIToolbox
 /// mechanism for menu-bar apps: no extra permissions, works while any app is
 /// focused, and consumes the keystroke so the focused app never sees it.
 final class HotkeyService {
-    static let keyO = UInt32(kVK_ANSI_O)
+    static let keyR = UInt32(kVK_ANSI_R)
     static let optionCommand = UInt32(optionKey | cmdKey)
 
     private var hotKeyRef: EventHotKeyRef?

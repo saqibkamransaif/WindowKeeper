@@ -12,7 +12,7 @@ the exact size and place you left it, on every screen.
   aren't running are launched, and every window goes back to its saved place.
 - **Magic button** — the preset you choose sits at the top of the menu as a
   bold "Restore …" item. Click the menu-bar icon, click the button, done.
-- **Send It Back (⌥⌘O)** — enlarged an app to focus on it? One keystroke puts
+- **Send It Back (⌥⌘R)** — enlarged an app to focus on it? One keystroke puts
   just that window back to its preset place; nothing else moves.
 - **Passive by design** — windows move ONLY when you ask (save, apply, snap to
   a zone). WindowKeeper never repositions anything on its own: no snapping
@@ -53,36 +53,36 @@ with your Mac.
 1. Open the apps you work with and arrange every window the way you like,
    on all your screens.
 2. Click the window icon in the menu bar (there is no Dock icon) and choose
-   **Presets → Save Current as New Preset…** — this snapshots every open app
-   and auto-adds each one to the managed list.
-3. That's it. The preset appears as the bold **✨ Restore …** button at the top
-   of the menu; one click relaunches anything you've closed and puts every
-   window back in its place. (With several presets, pick which one owns the
-   button via **Presets → *name* → Use as Magic Button**.)
-4. Optionally fine-tune per app under **Manage Apps**: keep
-   **Remember Last Position** (default) or pick
-   **Snap to Zone → Left Half / Middle Third / …** to pin it to a region.
+   **Remember Current Layout**. This saves every open window as **My Setup**
+   and adds each app to the managed list.
+3. That's it. **✨ Restore My Setup** at the top of the menu relaunches
+   anything you've closed and puts every window back in its place.
+4. Everything else is in **Preferences… (⌘,)**: more layouts, which one is
+   the default, which apps are managed (remove old ones there), and per-app
+   **Snap to Zone** (Left Half, Middle Third, …).
 
 ## Use
 
-Everything lives in the menu-bar icon:
+The menu-bar icon holds only the everyday actions:
 
 | Menu item | What it does |
 |-----------|--------------|
-| ✨ Restore *preset* (top of menu) | One-click full restore of the magic preset |
-| Send Focused Window Back (⌥⌘O) | Return only the focused window of the app you're using to its preset place — nothing else moves. The shortcut works globally, from any app |
-| Enabled | Master on/off switch |
-| Remember Positions Only (No Preset) | Remembers where every open app is right now; does not change any preset |
-| Presets → Save Current as New Preset… | Snapshot every open app's layout under a name |
-| Presets → *name* → Apply / Update / Delete | Apply launches missing apps and restores every window. Update replaces the preset with the apps open right now |
-| Presets → *name* → Use as Magic Button | Make this preset the one-click restore at the top |
-| Manage Apps → *app* → Managed | Opt an app in or out |
-| Manage Apps → *app* → Remember Last Position | Restores use its captured frames (default) |
-| Manage Apps → *app* → Snap to Zone → *zone* | Snap the app to a screen region now |
+| ✨ Restore *default layout* (⌘R) | One-click full restore of the default layout |
+| Remember Current Layout | Save every open window's place into the default layout. Apps with no open windows leave it |
+| Send Focused Window Back (⌥⌘R) | Return only the focused window of the app you're using to its place in the default layout. Works globally, from any app |
+| Preferences… (⌘,) | Everything else, below |
 
-Config lives in `~/Library/Application Support/WindowKeeper/` as three JSON
-files (`config.json`, `frames.json`, `presets.json`); logs in `logs/` next to
-them.
+Preferences has three tabs:
+
+| Tab | What you can do |
+|-----|-----------------|
+| Layouts | Restore, Remember Current Layout, Use as Default (Magic Button), Rename, Delete, Save Current Layout as New |
+| Apps | Every managed app, running or not: pick Remember last position or Snap to a zone, remove apps you no longer use, add a running app |
+| General | Turn WindowKeeper on or off, see the shortcuts, show the data folder |
+
+Settings save automatically to `~/Library/Application Support/WindowKeeper/`
+(`config.json`, `frames.json`, `presets.json`, logs in `logs/`). You never
+need to edit those files.
 
 WindowKeeper is also scriptable — the binary sends commands to the running app:
 
@@ -100,11 +100,11 @@ WindowKeeper is also scriptable — the binary sends commands to the running app
   (see above); if it prints `Accessibility trusted: false`, add WindowKeeper
   in System Settings → Privacy & Security → Accessibility, then quit and
   relaunch the app.
-- **⌥⌘O just beeps** → the beep is WindowKeeper telling you it had nothing to
+- **⌥⌘R just beeps** → the beep is WindowKeeper telling you it had nothing to
   do: no preset saved yet, the app you're in isn't part of the magic preset,
   or the app has no standard window focused. The exact reason is one line in
   `~/Library/Application Support/WindowKeeper/logs/system.log`.
-- **⌥⌘O does nothing at all (no beep)** → another app owns that global
+- **⌥⌘R does nothing at all (no beep)** → another app owns that global
   shortcut. WindowKeeper logs `Hotkey registration failed` at launch when
   that happens; the menu item still works.
 - **Windows restore to the wrong screen after unplugging a monitor** →

@@ -1,5 +1,28 @@
 # Changelog
 
+## [1.9.0] — 2026-11-17
+
+### Changed
+- **A short menu.** The menu now holds only Restore My Setup (⌘R),
+  Remember Current Layout, Send Focused Window Back and Preferences. Enabled,
+  Remember Positions Only, Presets, Manage Apps and Open Config Folder are gone
+  from it.
+- **Send Focused Window Back is now ⌥⌘R** (was ⌥⌘O), as asked. Note that
+  Safari uses ⌥⌘R for Responsive Design Mode; WindowKeeper's global shortcut
+  wins.
+- **Plainer names.** "Update from Current Layout" is "Remember Current
+  Layout", "Apply" is "Restore", "Use as Magic Button" is "Use as Default
+  (Magic Button)". With no layout yet, Remember Current Layout creates
+  "My Setup" and makes it the default.
+
+### Added
+- **Preferences window (⌘,)** replacing Open Config Folder. Layouts tab:
+  restore, remember, set default, rename, delete, save new. Apps tab: every
+  managed app, running or not, with its placement and a remove button (old
+  apps could not be removed before because the menu listed only running
+  apps). General tab: on/off switch, shortcuts, data folder.
+- Remember Current Layout asks before overwriting a layout.
+
 ## [1.8.0] — 2026-09-14
 
 ### Changed

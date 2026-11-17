@@ -17,7 +17,7 @@ position you left them. The user wants:
 4. **App selection** — management is opt-in per app; apps captured into a
    preset are opted in automatically.
 5. **Send it back** — while working, the user enlarges the focused app's
-   window; one keystroke (⌥⌘O) must return just that window to its preset
+   window; one keystroke (⌥⌘R) must return just that window to its preset
    place without disturbing anything else.
 
 ## Architecture
@@ -36,7 +36,7 @@ WindowKeeper      (executable — AppKit menu-bar app)
 ├── AccessibilityService.swift AXUIElement wrappers (windows, focused window, get/set frame)
 ├── WindowManager.swift        orchestration: captures, restores, preset-launch placement
 ├── StatusMenuController.swift menu UI (enable, capture, presets, manage apps, zones)
-├── HotkeyService.swift        Carbon RegisterEventHotKey wrapper (global ⌥⌘O)
+├── HotkeyService.swift        Carbon RegisterEventHotKey wrapper (global ⌥⌘R)
 └── Log.swift                  file logger → ~/Library/Application Support/WindowKeeper/logs
 ```
 
@@ -86,7 +86,7 @@ WindowKeeper      (executable — AppKit menu-bar app)
 
 | Mode | Behavior |
 |------|----------|
-| `remember` | Explicit captures (preset save/update, Remember Positions Only) store the app's frames; explicit restores re-apply them via proximity matching. |
+| `remember` | Explicit captures (preset save, Remember Current Layout) store the app's frames; explicit restores re-apply them via proximity matching. |
 | `zone(id)` | Selecting the zone snaps every current window of the app to the zone's rect; preset applies still restore captured frames. |
 
 ## Presets
@@ -103,13 +103,13 @@ empty capture leaves the preset unchanged.
 
 The **magic button** is a prominent one-click "Restore *preset*" item at the
 top of the status menu. It applies the preset selected via `config.magicPresetID`
-("Use as Magic Button" per preset), falling back to the most recently saved.
+("Use as Default (Magic Button)" in Preferences → Layouts), falling back to the most recently saved.
 
-## Send It Back (⌥⌘O) — single-window restore (1.7.0)
+## Send It Back (⌥⌘R) — single-window restore (1.7.0)
 
 The user enlarges the focused app to work in it, then wants it back in its
 organized spot with one keystroke — without firing a full restore. A global
-⌥⌘O (Carbon `RegisterEventHotKey` in `HotkeyService`; no extra permissions,
+⌥⌘R (Carbon `RegisterEventHotKey` in `HotkeyService`; no extra permissions,
 the focused app never sees the keystroke) calls
 `WindowManager.sendFocusedWindowBack()`, which is also reachable from a menu
 item under the magic button. Design points:
@@ -122,7 +122,7 @@ item under the magic button. Design points:
   of the app's windows against the preset's saved frames — so a browser
   profile window returns to *its own* slot — but only the focused window's
   assigned target is applied.
-- **⌥⌘O, not ⌘O**: a global ⌘O would hijack "Open file" in every app; the
+- **⌥⌘R, not ⌘O**: a global ⌘O would hijack "Open file" in every app; the
   extra Option keeps the "O for original position" mnemonic safely.
 - **Refusals are quiet**: disabled, no magic preset, app not in the preset,
   no focused window, or no matched frame → `NSSound.beep()` plus one log

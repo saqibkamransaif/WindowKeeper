@@ -27,12 +27,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         manager.start()
 
-        hotkeyService = HotkeyService(keyCode: HotkeyService.keyO,
+        hotkeyService = HotkeyService(keyCode: HotkeyService.keyR,
                                       modifiers: HotkeyService.optionCommand) {
             [weak self] in self?.manager.sendFocusedWindowBack()
         }
         if hotkeyService == nil {
-            Log.shared.error("⌥⌘O hotkey unavailable — Send Back works only "
+            Log.shared.error("⌥⌘R hotkey unavailable — Send Back works only "
                 + "from the menu")
         }
     }
